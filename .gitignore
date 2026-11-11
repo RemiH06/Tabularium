@@ -1,0 +1,46 @@
+# Contexto de sesión de Claude (no se publica)
+CLAUDE.md
+steps.md
+plan.md
+
+# Sistema y editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Secretos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# Entorno de Python (uv)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Notebooks de exploración
+.ipynb_checkpoints/
+
+# Caché de documentos fuente (DOF, LeyesBiblio, SAT): se baja, no se versiona
+cache/
+
+# Base de SQLite: se regenera desde la caché
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Modelos de embeddings descargados o cuantizados
+models/
+*.onnx

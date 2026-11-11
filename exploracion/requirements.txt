@@ -1,0 +1,8 @@
+httpx
+beautifulsoup4
+lxml
+pymupdf
+olefile
+pandas
+plotly
+jupyter
