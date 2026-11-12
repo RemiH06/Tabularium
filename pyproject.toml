@@ -1,0 +1,29 @@
+[project]
+name = "tabularium"
+version = "0.1.0"
+description = "Corpus versionado de leyes fiscales de México, consultable con citas por MCP."
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "RemLam" }]
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.9",
+    "olefile>=0.47",
+]
+
+[project.scripts]
+tabularium = "tabularium.cli:main"
+
+[dependency-groups]
+dev = [
+    "pymupdf>=2.1",
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.13"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

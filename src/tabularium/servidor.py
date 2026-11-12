@@ -1,0 +1,57 @@
+"""Servidor MCP de Tabularium: consulta del corpus con cita obligatoria en cada resultado."""
+from __future__ import annotations
+
+import os
+from contextlib import closing
+from pathlib import Path
+from typing import Any
+
+from mcp.server.mcpserver import MCPServer
+
+from . import almacen
+
+INSTRUCCIONES = (
+    "Corpus versionado de leyes fiscales de México (por ahora LIVA y LISR, desde el 2024-01-01). "
+    "Regla: cita documento, unidad y fecha de versión de cada resultado (campo `cita.texto`) o no respondas. "
+    "Las preguntas fiscales son por ejercicio: pasa `fecha` (AAAA-MM-DD) cuando la pregunta sea sobre otro "
+    "momento que hoy. No sustituye a un abogado o contador que firme."
+)
+
+
+def ruta_db() -> Path:
+    return Path(os.environ.get("TABULARIUM_DB", "data/tabularium.db"))
+
+
+def crear_servidor(db: Path | None = None) -> MCPServer:
+    db = db or ruta_db()
+    servidor = MCPServer("tabularium", instructions=INSTRUCCIONES, version="0.1.0")
+
+    @servidor.tool()
+    def articulo(documento: str, unidad: str, fecha: str | None = None) -> dict[str, Any]:
+        """Texto de un artículo o transitorio vigente en `fecha` (hoy si se omite), con su cita.
+
+        documento: "LIVA", "LISR" o un decreto ("DOF-2024-04-01"). unidad: "1o.-A", "79", "Transitorio Único".
+        """
+        with closing(almacen.abrir(db)) as con:
+            return almacen.articulo(con, documento, unidad, fecha)
+
+    @servidor.tool()
+    def versiones(documento: str, unidad: str) -> list[dict]:
+        """Todas las versiones de una unidad, de la más vieja a la más nueva, cada una con su cita."""
+        with closing(almacen.abrir(db)) as con:
+            return almacen.versiones(con, documento, unidad)
+
+    @servidor.tool()
+    def buscar(consulta: str, fecha: str | None = None, limite: int = 5) -> list[dict]:
+        """Búsqueda por palabras (BM25) sobre lo vigente en `fecha`. Devuelve fragmentos con cita;
+        el texto completo se pide con `articulo`."""
+        with closing(almacen.abrir(db)) as con:
+            return almacen.buscar(con, consulta, fecha, limite)
+
+    return servidor
+
+
+def servir() -> None:
+    # Solo loopback por defecto. En frambuesa-yi se publica a la tailnet, nunca a internet (RNF-07).
+    crear_servidor().run("streamable-http", host=os.environ.get("TABULARIUM_HOST", "127.0.0.1"),
+                         port=int(os.environ.get("TABULARIUM_PUERTO", "8061")))
