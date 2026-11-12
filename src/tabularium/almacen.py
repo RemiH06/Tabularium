@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 CORTE = date(2024, 1, 1)  # inicio del corpus: la línea base es el texto vigente a esta fecha
+EXPEDICION = "Expedición: "  # prefijo del título del decreto que expide una ley
 
 ESQUEMA = """
 CREATE TABLE documentos (
@@ -103,6 +104,11 @@ def cita(fila: sqlite3.Row) -> dict:
              else f"vigente desde {fila['vigente_desde']}")
     hasta = f" hasta {fila['vigente_hasta']}" if fila["vigente_hasta"] else ""
     prefijo = "art. " if fila["tipo"] == "articulo" else ""
+    if base and (fila["titulo"] or "").startswith(EXPEDICION):
+        # Sin nota no hay fecha de última reforma: LeyesBiblio solo anota las del CFF desde 2021.
+        origen = f"sin nota de reforma en la fuente; ley publicada en el DOF el {fila['publicado_dof']}"
+    else:
+        origen = f"{'última reforma publicada' if base else 'decreto publicado'} en el DOF el {fila['publicado_dof']}"
     return {
         "documento": fila["documento"],
         "unidad": fila["unidad"],
@@ -111,8 +117,7 @@ def cita(fila: sqlite3.Row) -> dict:
         "decreto_dof": fila["decreto"],
         "publicado_dof": fila["publicado_dof"],
         "fuente_url": fila["fuente_url"],
-        "texto": f"{fila['documento']}, {prefijo}{fila['unidad']}, {desde}{hasta}; "
-                 f"{'última reforma publicada' if base else 'decreto publicado'} en el DOF el {fila['publicado_dof']}",
+        "texto": f"{fila['documento']}, {prefijo}{fila['unidad']}, {desde}{hasta}; {origen}",
     }
 
 

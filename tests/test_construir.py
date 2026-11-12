@@ -2,6 +2,7 @@
 import asyncio
 import sqlite3
 from contextlib import closing
+from datetime import date
 
 import pytest
 from mcp.client.client import Client
@@ -9,6 +10,7 @@ from mcp.client.client import Client
 from tabularium import almacen, construir
 from tabularium.ley import segmentar
 from tabularium.servidor import crear_servidor
+from tabularium.vigencias import Intermedia
 
 from test_ley import LEY
 
@@ -47,6 +49,49 @@ def test_rf04_versiones_inmutables(db):
                       "UPDATE versiones SET vigente_hasta = '2030-01-01' WHERE vigente_hasta IS NOT NULL"):
             with pytest.raises(sqlite3.IntegrityError):
                 con.execute(orden)
+
+
+SEGUNDA = """
+DECRETO por el que se reforma otra vez la Ley de prueba.
+Publicado en el Diario Oficial de la Federación el 1 de julio de 2024
+Transitorio
+Único.- El presente Decreto entrará en vigor el día siguiente al de su publicación en el Diario Oficial de la Federación.
+Ciudad de México, a 20 de junio de 2024.- Firmas.
+"""
+DOS_REFORMAS = LEY.replace("Texto nuevo.\nArtículo reformado DOF 01-04-2024",
+                           "Texto final.\nArtículo reformado DOF 01-04-2024, 01-07-2024") + SEGUNDA
+
+
+def _construir(tmp_path, monkeypatch, actual: str):
+    textos = {FUENTE.base_url: BASE, FUENTE.actual_url: actual}
+    monkeypatch.setattr(construir, "leer", lambda url: segmentar(textos[url]))
+    construir.construir(tmp_path / "t.db", [FUENTE])
+    return tmp_path / "t.db"
+
+
+def test_r10_version_intermedia(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match="INTERMEDIAS"):  # sin reconstrucción no se adivina el texto intermedio
+        _construir(tmp_path, monkeypatch, DOS_REFORMAS)
+    i = Intermedia("LDP", "2o", date(2024, 4, 2), (("Texto final.", "Texto nuevo."),), "https://ejemplo/dof")
+    monkeypatch.setattr(construir, "intermedia", lambda d, u, desde: i if (d, u, desde) == ("LDP", "2o", i.desde) else None)
+    with closing(almacen.abrir(_construir(tmp_path, monkeypatch, DOS_REFORMAS))) as con:
+        vs = almacen.versiones(con, "LDP", "2o")
+    assert [(v["texto"], v["cita"]["vigente_desde"], v["cita"]["vigente_hasta"]) for v in vs] == [
+        ("Artículo 2o.- Texto viejo.", "2024-01-01", "2024-04-02"),
+        ("Artículo 2o.- Texto nuevo.", "2024-04-02", "2024-07-02"),
+        ("Artículo 2o.- Texto final.", "2024-07-02", None)]
+    assert vs[1]["cita"]["fuente_url"] == "https://ejemplo/dof"
+
+
+def test_dos_decretos_el_mismo_dia(tmp_path, monkeypatch):
+    mismo_dia = LEY + SEGUNDA.replace("1 de julio de 2024", "1 de abril de 2024")
+    with pytest.raises(ValueError, match="MISMO_DIA"):  # la nota "DOF 01-04-2024" ya no dice a cuál remite
+        _construir(tmp_path, monkeypatch, mismo_dia)
+    monkeypatch.setattr(construir, "MISMO_DIA", {date(2024, 4, 1): "revisado"})
+    with closing(almacen.abrir(_construir(tmp_path, monkeypatch, mismo_dia))) as con:
+        assert almacen.articulo(con, "LDP", "2o")["cita"]["decreto_dof"] == "DOF-2024-04-01"
+        # Los transitorios del segundo no se pierden: van a su propio id.
+        assert almacen.articulo(con, "DOF-2024-04-01-2", "Transitorio Único")["unidad"] == "Transitorio Único"
 
 
 def test_consultas_invalidas(db):

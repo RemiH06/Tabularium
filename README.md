@@ -23,7 +23,7 @@ El nombre viene del *Tabularium*, el archivo oficial de Roma en el Capitolio (78
 El repo no trae texto legal: los documentos se bajan de las fuentes oficiales (LeyesBiblio de la Cámara de Diputados, copias fechadas de archive.org) a una caché local, y la base se regenera desde ahí.
 
 ```diff
-- En desarrollo: por ahora cubre la LIVA y la LISR desde el 2024-01-01, con búsqueda solo por palabras.
+- En desarrollo: por ahora cubre la LIVA, la LISR y el CFF desde el 2024-01-01, con búsqueda solo por palabras.
 - No sustituye a un abogado o contador que firme.
 ```
 
@@ -62,13 +62,14 @@ claude mcp add --transport http tabularium http://127.0.0.1:8061/mcp
 - Lectura directa del `.doc` de LeyesBiblio (tabla de piezas de Word 97), sin LibreOffice: párrafos enteros, sin los renglones cortados del PDF.
 - Segmentación en artículos con su jerarquía (título, capítulo, sección). Las notas de reforma de la Cámara van como metadatos, no como texto de la norma.
 - Transitorios como unidades propias: los de la ley original son de la ley; los de cada reforma, de su decreto (`DOF-2024-04-01`).
-- Versiones por vigencia: la fecha de entrada en vigor sale del transitorio del decreto, no de su fecha de publicación, y las dos se guardan por separado.
+- Versiones por vigencia: la fecha de entrada en vigor sale del transitorio del decreto, no de su fecha de publicación, y las dos se guardan por separado. Las excepciones (un artículo que rige después que el resto del decreto) van en una tabla con su fuente.
+- Versiones intermedias que ninguna copia conserva (el art. 141 del CFF de enero a abril de 2026), reconstruidas desde el decreto, marcadas como reconstruidas y verificadas contra una copia en PDF que la construcción no usa.
 - Disparadores de SQLite que impiden sobrescribir o borrar una versión.
 - Herramientas MCP: `articulo(documento, unidad, fecha)`, `versiones(documento, unidad)` y `buscar(consulta, fecha)` con BM25 (FTS5).
 
 ## Funcionalidades futuras
 
-- CFF con sus versiones intermedias, búsqueda híbrida con embeddings y evaluación de recall.
+- Búsqueda híbrida con embeddings y evaluación de recall.
 - Resolución Miscelánea Fiscal, anexos de CFDI y grafo de referencias entre artículos.
 - Revisión diaria del DOF y *Novellae*: notas de parche por reforma, con diff literal y etiquetas de efecto.
 

@@ -1,6 +1,6 @@
 # Preguntas de prueba (borrador)
 
-Conjunto para RNF-06: recall@5 de al menos 0.85 sobre 40 preguntas con unidad esperada y fecha. Borrador de la iteración 0 (2026-11-10); Remi lo revisa antes de usarlo en la iteración 2.
+Conjunto para RNF-06: recall@5 de al menos 0.85 sobre 52 preguntas con unidad esperada y fecha, medido contra la unidad y contra la versión (el umbral se exige contra la versión). Las 40 primeras son el borrador de la iteración 0 (2026-11-10); las 12 siguientes salen de la lista de Remi del 2026-11-12.
 
 ## Cómo se armó
 
@@ -74,11 +74,48 @@ Sirven para probar la regla de citar o callar y los bordes del versionado. No ti
 |---|---|---|---|
 | A | ¿Qué dice el artículo 30-B del CFF? | 2026-02-01 | No devolverlo como vigente: se adicionó con el decreto del DOF 07-11-2025, pero entró en vigor el 2026-04-01. |
 | B | ¿Qué formas de garantía acepta el CFF? | 2026-02-01 | Devolver la versión intermedia del art. 141 (vigente del 2026-01-01 al 2026-04-09). No está en ninguna copia fechada: hay que reconstruirla con el decreto del 07-11-2025. |
-| C | ¿Cuál es la tarifa anual del ISR de personas físicas en 2026? | 2026-04-30 | El art. 152 de la LISR en LeyesBiblio no trae la tarifa actualizada; la vigente está en el Anexo 8 de la RMF. Mientras el Anexo 8 no esté en el corpus, la respuesta debe advertirlo. |
+| C | ¿Cuál es la tarifa anual del ISR de personas físicas en 2026? | 2026-04-30 | El art. 152 de la LISR en LeyesBiblio no trae la tarifa actualizada; la vigente está en el Anexo 8 de la RMF, que entra en la iteración 3 (decisión del 2026-11-12). Hasta entonces, la respuesta debe advertirlo. |
 | D | ¿Cuántos días de vacaciones me corresponden por ley? | 2026-11-10 | Callar: la LFT está fuera del corpus de la v1. |
 | E | ¿Qué decía la regla 2.4.10 de la RMF sobre la constancia de situación fiscal? | 2026-03-01 | En la RMF 2026 ese tema es la regla 2.4.9. Buscar por número sin el año devuelve otra regla. |
 
-## Pendiente para la iteración 2
+## Preguntas de Remi (2026-11-12)
 
-- Que Remi revise el fraseo y agregue preguntas de su caso real (persona física con actividad profesional).
-- Decidir si el recall se mide contra la unidad (artículo o regla) o contra la versión exacta. Con las temporales conviene la versión.
+Remi propuso 40 preguntas de consulta legal y fiscal general. La mayoría usa términos de España (Hacienda, autónomo, SL, Impuesto sobre Sociedades, Seguridad Social, cláusula suelo, Ley de Segunda Oportunidad) o cae fuera de la v1. Se repartieron así: 12 entran al recall, reformuladas para México; 18 son casos de callar; 10 se descartan.
+
+### Entran al recall
+
+Fraseadas como las haría una persona física con actividad profesional en México. La versión esperada es la vigente en la fecha; el script la comprueba con `vigente_desde` y `vigente_hasta`, sin columna aparte. Las unidades del CFF se verifican al ingerirlo.
+
+| # | Original | Tipo | Pregunta | Documento | Unidad esperada | Fecha |
+|---|---|---|---|---|---|---|
+| 41 | 11 | conceptual | ¿Puedo tributar en el RESICO si empiezo a dar servicios profesionales? | LISR | art. 113-E (también vale art. 100) | 2026-11-10 |
+| 42 | 12 | conceptual | ¿Qué gastos puedo deducir como persona física con servicios profesionales? | LISR | art. 103 | 2026-11-10 |
+| 43 | 13 | conceptual | El SAT me requirió una declaración que no presenté, ¿qué puede hacer? | CFF | art. 41 | 2026-11-10 |
+| 44 | 14 | conceptual | ¿Qué hago con un saldo a favor de IVA: lo acredito o pido la devolución? | LIVA | art. 6o | 2026-11-10 |
+| 45 | 15 | conceptual | ¿Qué pasa si mi opinión de cumplimiento sale negativa? | CFF | art. 32-D | 2026-11-10 |
+| 46 | 16 | conceptual | ¿Qué obligaciones tiene una persona física con actividad empresarial o profesional? | LISR | art. 110 | 2026-11-10 |
+| 47 | 17 | conceptual | ¿Cuánto se paga de recargos si pago tarde un impuesto? | CFF | art. 21 | 2026-11-10 |
+| 48 | 19 | conceptual | Voy a contratar a mi primer empleado, ¿qué tengo que retener y declarar? | LISR | art. 99 | 2026-11-10 |
+| 49 | 20 | conceptual | ¿Cómo empieza el SAT una revisión o visita domiciliaria? | CFF | art. 42 | 2026-11-10 |
+| 50 | 27 | conceptual | ¿Qué es la defraudación fiscal y qué pena tiene? | CFF | art. 108 | 2026-11-10 |
+| 51 | 31 | conceptual | Si presento tarde mis declaraciones sin que el SAT me lo pida, ¿me multan? | CFF | art. 73 | 2026-11-10 |
+| 52 | 34 | conceptual | Voy a constituir una sociedad, ¿cuándo tengo que inscribirla en el RFC? | CFF | art. 27 | 2026-11-10 |
+
+Lo que se quitó al adaptarlas: "carta invitación" (43) no aparece en el CFF; "Impuesto sobre Sociedades" (44) es de España; la Seguridad Social (48) es el IMSS, fuera de la v1; los pasos mercantiles de la sociedad (52) son de la Ley General de Sociedades Mercantiles, fuera de la v1.
+
+### Casos de callar (no cuentan para el recall)
+
+Materias fuera del corpus de la v1. Sirven para medir la regla de citar o callar: el sistema no debe responder como si el corpus las cubriera. Números de la lista original:
+
+| Materia | Preguntas | Ley mexicana que haría falta |
+|---|---|---|
+| Laboral | 1 (excedencia o reducción de jornada), 2 (despido e indemnización) | LFT |
+| Familiar y civil | 3 (pensión alimenticia), 5 (vecinos y condominio), 8 (depósito y renta) | Códigos civiles estatales, ley de condominios |
+| Bancario y consumo | 4 (cláusula suelo, figura de España), 6 (cobros de luz, agua o teléfono), 7 (devoluciones y garantía), 9 (insolvencia; la Ley de Segunda Oportunidad es de España) | LFPC, Ley de Concursos Mercantiles |
+| Administrativo | 10 (multa de tránsito) | Reglamentos estatales y municipales |
+| Penal | 21 a 26, 28 | CNPP, Código Penal Federal |
+| Datos personales | 35 (confidencialidad de una gestoría) | LFPDPPP |
+
+### Descartadas
+
+18, 29, 30, 32, 33, 36, 37, 38, 39 y 40 se le hacen a un despacho o gestoría (honorarios, plataforma, experiencia, duración, estrategia), no a un corpus de normas. La 18 (¿un asesor puede reducir mi carga legalmente?) pide una opinión: a lo más se citaría la razón de negocios del art. 5o.-A del CFF, que ya prueba la 26.
