@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from . import almacen
 
 INSTRUCCIONES = (
-    "Corpus versionado de leyes fiscales de México (por ahora LIVA y LISR, desde el 2024-01-01). "
+    "Corpus versionado de leyes fiscales de México (por ahora LIVA, LISR y CFF, desde el 2024-01-01). "
     "Regla: cita documento, unidad y fecha de versión de cada resultado (campo `cita.texto`) o no respondas. "
     "Las preguntas fiscales son por ejercicio: pasa `fecha` (AAAA-MM-DD) cuando la pregunta sea sobre otro "
     "momento que hoy. No sustituye a un abogado o contador que firme."
@@ -30,7 +30,7 @@ def crear_servidor(db: Path | None = None) -> MCPServer:
     def articulo(documento: str, unidad: str, fecha: str | None = None) -> dict[str, Any]:
         """Texto de un artículo o transitorio vigente en `fecha` (hoy si se omite), con su cita.
 
-        documento: "LIVA", "LISR" o un decreto ("DOF-2024-04-01"). unidad: "1o.-A", "79", "Transitorio Único".
+        documento: "LIVA", "LISR", "CFF" o un decreto ("DOF-2024-04-01"). unidad: "1o.-A", "79", "Transitorio Único".
         """
         with closing(almacen.abrir(db)) as con:
             return almacen.articulo(con, documento, unidad, fecha)
@@ -43,8 +43,10 @@ def crear_servidor(db: Path | None = None) -> MCPServer:
 
     @servidor.tool()
     def buscar(consulta: str, fecha: str | None = None, limite: int = 5) -> list[dict]:
-        """Búsqueda por palabras (BM25) sobre lo vigente en `fecha`. Devuelve fragmentos con cita;
-        el texto completo se pide con `articulo`."""
+        """Búsqueda por palabras (BM25 sobre raíces) en lo vigente en `fecha`. Un artículo citado
+        por número y ley ("art. 27 LISR") sale primero, con `puntaje` nulo. Devuelve fragmentos con
+        cita; el texto completo se pide con `articulo`. Que salgan resultados no significa que el
+        corpus cubra la pregunta: si ninguno trata el tema, no respondas."""
         with closing(almacen.abrir(db)) as con:
             return almacen.buscar(con, consulta, fecha, limite)
 

@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.9",
     "olefile>=0.47",
+    "snowballstemmer>=3.1.1",
 ]
 
 [project.scripts]

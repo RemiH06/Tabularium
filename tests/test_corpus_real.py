@@ -149,3 +149,14 @@ def test_rf10_ninguna_version_sin_cita(db):
     assert len(filas) > 400
     for f in filas:
         assert all(almacen.cita(f)[c] for c in ("documento", "unidad", "vigente_desde", "decreto_dof", "fuente_url"))
+
+
+def test_rf08_exacta_primero(db):
+    with closing(almacen.abrir(db)) as con:
+        for consulta, doc, unidad in [("art. 27 fracción V LISR", "LISR", "27"), ("artículo 5o.-A del CFF", "CFF", "5o.-A")]:
+            primero = almacen.buscar(con, consulta, "2026-11-10")[0]
+            assert (primero["documento"], primero["unidad"], primero["puntaje"]) == (doc, unidad, None)
+            assert all(primero["cita"][c] for c in ("documento", "unidad", "vigente_desde", "decreto_dof", "fuente_url"))
+        r = almacen.buscar(con, "deducciones de personas morales", "2026-11-10")
+        assert len(r) == 5 and all(x["fragmento"] and x["puntaje"] > 0 for x in r)
+        assert "«" in r[0]["fragmento"]  # la raíz resalta la palabra completa en el texto literal

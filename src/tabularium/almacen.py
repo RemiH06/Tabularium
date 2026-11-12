@@ -11,6 +11,8 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
+from . import lexico
+
 CORTE = date(2024, 1, 1)  # inicio del corpus: la línea base es el texto vigente a esta fecha
 EXPEDICION = "Expedición: "  # prefijo del título del decreto que expide una ley
 
@@ -54,6 +56,9 @@ BEGIN SELECT RAISE(ABORT, 'una versión no se borra'); END;
 CREATE VIRTUAL TABLE versiones_fts USING fts5(
     unidad, texto, content='versiones', content_rowid='id', tokenize='unicode61 remove_diacritics 2'
 );
+-- Raíces sin palabras vacías (`lexico.raices`), con rowid = versiones.id. Ordena `buscar`;
+-- versiones_fts queda para los fragmentos, que se muestran con el texto literal.
+CREATE VIRTUAL TABLE busqueda USING fts5(unidad, texto, content='');
 """
 
 _COLUMNAS = """v.documento, d.nombre, v.unidad, v.tipo, v.jerarquia, v.vigente_desde, v.vigente_hasta,
@@ -146,16 +151,49 @@ def versiones(con: sqlite3.Connection, documento: str, unidad: str) -> list[dict
     return [_salida(f, texto=f["texto"]) for f in filas]
 
 
+def indexar(con: sqlite3.Connection) -> None:
+    """Llena las dos tablas de búsqueda. Va al final de la construcción, con todas las versiones."""
+    con.execute("INSERT INTO versiones_fts(versiones_fts) VALUES ('rebuild')")
+    con.executemany("INSERT INTO busqueda (rowid, unidad, texto) VALUES (?, ?, ?)",
+                    ((i, " ".join(lexico.raices(u)), " ".join(lexico.raices(t)))
+                     for i, u, t in con.execute("SELECT id, unidad, texto FROM versiones").fetchall()))
+
+
+PREFERENCIA = 1.5  # multiplica el puntaje de los artículos de una ley que la consulta nombra
+
+
 def buscar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, limite: int = 5) -> list[dict]:
-    """BM25 sobre las versiones vigentes en `fecha`. Devuelve un fragmento; el texto completo, con `articulo`."""
-    terminos = re.findall(r"\w+", consulta)
-    if not terminos:
-        raise ValueError("la consulta no tiene palabras")
-    # shortcut: sin palabras vacías ni raíces; "de" y "del" pesan. Se mide y se ajusta con el recall de la iteración 2.
-    expresion = " OR ".join(f'"{t}"' for t in terminos)  # entre comillas: nada de la consulta es sintaxis FTS5
-    filas = con.execute(
-        f"SELECT {_COLUMNAS}, snippet(versiones_fts, 1, '«', '»', ' … ', 40) AS fragmento "
-        f"FROM versiones_fts JOIN {_JOIN.replace('versiones v', 'versiones v ON v.id = versiones_fts.rowid', 1)} "
-        f"WHERE versiones_fts MATCH :expr AND {_VIGENTE} ORDER BY bm25(versiones_fts) LIMIT :limite",
-        {"expr": expresion, "fecha": _fecha(fecha), "limite": max(1, min(limite, 20))}).fetchall()
-    return [_salida(f, fragmento=f["fragmento"]) for f in filas]
+    """BM25 sobre raíces de las versiones vigentes en `fecha`. Un artículo citado por número y ley
+    ("art. 27 fracción V LISR") sale primero. Devuelve un fragmento; el texto completo, con `articulo`."""
+    f, limite = _fecha(fecha), max(1, min(limite, 20))
+    salida = []
+    for doc, unidad in lexico.referencias(consulta):
+        try:
+            a = articulo(con, doc, unidad, f)
+        except LookupError:
+            continue
+        salida.append({k: v for k, v in a.items() if k not in ("texto", "notas", "fecha_consulta")}
+                      | {"fragmento": a["texto"][:300], "puntaje": None})
+    terminos = lexico.consulta(consulta)
+    if not terminos and not salida:
+        raise ValueError("la consulta no tiene palabras que buscar")
+    if terminos:
+        leyes = sorted(lexico.mencionados(consulta))
+        filas = con.execute(
+            f"SELECT {_COLUMNAS}, v.id, -bm25(busqueda) * (CASE WHEN v.documento IN "
+            f"({','.join('?' * len(leyes)) or 'NULL'}) THEN {PREFERENCIA} ELSE 1 END) AS puntaje "
+            f"FROM busqueda JOIN {_JOIN.replace('versiones v', 'versiones v ON v.id = busqueda.rowid', 1)} "
+            f"WHERE busqueda MATCH ? AND {_VIGENTE.replace(':fecha', '?')} ORDER BY puntaje DESC LIMIT ?",
+            (*leyes, " OR ".join(f'"{t}"' for t in terminos), f, f, limite + len(salida))).fetchall()
+        # Fragmento del texto literal: cada raíz como prefijo ("deduc"* resalta "deducciones").
+        ids = [r["id"] for r in filas]
+        fragmentos = dict(con.execute(
+            f"SELECT rowid, snippet(versiones_fts, 1, '«', '»', ' … ', 40) FROM versiones_fts "
+            f"WHERE versiones_fts MATCH ? AND rowid IN ({','.join('?' * len(ids)) or 'NULL'})",
+            (" OR ".join(f'"{t}"*' for t in terminos), *ids)).fetchall())
+        vistos = {(s["documento"], s["unidad"]) for s in salida}
+        salida += [_salida(r, fragmento=fragmentos.get(r["id"], ""), puntaje=round(r["puntaje"], 3))
+                   for r in filas if (r["documento"], r["unidad"]) not in vistos]
+    # puntaje: BM25 positivo (más alto, más relevante); solo se compara dentro de una consulta.
+    # None: el artículo se pidió por número.
+    return salida[:limite]

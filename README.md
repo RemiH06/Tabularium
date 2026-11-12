@@ -38,10 +38,10 @@ uv sync
 uv run pytest
 ```
 
-3. Llena la caché de documentos fuente en `cache/` (por ahora con el notebook `exploracion/medir_corpus.ipynb`, que baja con pausas entre peticiones) y construye la base:
+3. Baja las leyes a la caché `cache/` y construye la base:
 
 ```bash
-uv run tabularium construir
+uv run tabularium descargar --construir
 uv run tabularium servir
 ```
 
@@ -53,7 +53,9 @@ claude mcp add --transport http tabularium http://127.0.0.1:8061/mcp
 
 ## Argumentos de ejecución
 
+- `tabularium descargar [--construir] [--db RUTA]` revisa el índice de LeyesBiblio y baja solo las leyes cuya fecha de última reforma cambió (las copias base de archive.org, una sola vez). Con `--construir`, regenera la base si bajó algo.
 - `tabularium construir [--db RUTA]` regenera la base desde la caché. La construye en un archivo temporal y la cambia de golpe, así que el servidor nunca ve una base a medias.
+- `tabularium evaluar [-k 5] [--json] [--db RUTA]` mide recall@k con las preguntas de `docs/preguntas_prueba.md`, contra la unidad y contra la versión vigente.
 - `tabularium servir` levanta el servidor MCP (HTTP streamable) en `/mcp`.
 - Variables de entorno: `TABULARIUM_DB` (por defecto `data/tabularium.db`), `TABULARIUM_CACHE` (`cache`), `TABULARIUM_HOST` (`127.0.0.1`) y `TABULARIUM_PUERTO` (`8061`).
 
@@ -65,11 +67,12 @@ claude mcp add --transport http tabularium http://127.0.0.1:8061/mcp
 - Versiones por vigencia: la fecha de entrada en vigor sale del transitorio del decreto, no de su fecha de publicación, y las dos se guardan por separado. Las excepciones (un artículo que rige después que el resto del decreto) van en una tabla con su fuente.
 - Versiones intermedias que ninguna copia conserva (el art. 141 del CFF de enero a abril de 2026), reconstruidas desde el decreto, marcadas como reconstruidas y verificadas contra una copia en PDF que la construcción no usa.
 - Disparadores de SQLite que impiden sobrescribir o borrar una versión.
-- Herramientas MCP: `articulo(documento, unidad, fecha)`, `versiones(documento, unidad)` y `buscar(consulta, fecha)` con BM25 (FTS5).
+- Descarga respetuosa: un cliente, pausa de 2.5 s por host, User-Agent genérico, escritura atómica y registro de cada petición.
+- Herramientas MCP: `articulo(documento, unidad, fecha)`, `versiones(documento, unidad)` y `buscar(consulta, fecha)` con BM25 (FTS5) sobre raíces en español (Snowball), sin palabras vacías y con siglas (CFDI, RFC, RESICO). Un artículo pedido por número y ley ("art. 27 LISR") sale primero.
 
 ## Funcionalidades futuras
 
-- Búsqueda híbrida con embeddings y evaluación de recall.
+- Búsqueda híbrida con embeddings.
 - Resolución Miscelánea Fiscal, anexos de CFDI y grafo de referencias entre artículos.
 - Revisión diaria del DOF y *Novellae*: notas de parche por reforma, con diff literal y etiquetas de efecto.
 

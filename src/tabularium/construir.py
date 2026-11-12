@@ -213,7 +213,7 @@ def construir(destino: Path, fuentes: list[Fuente] = FUENTES) -> list[dict]:
                 leyes.append((f, actual, actual if f.base_url == f.actual_url else leer(f.base_url)))
                 c.decretos_de(f, actual)
             resumen = [c.ley(*ley) for ley in leyes]
-            con.execute("INSERT INTO versiones_fts(versiones_fts) VALUES ('rebuild')")
+            almacen.indexar(con)
     except BaseException:
         con.close()
         temporal.unlink(missing_ok=True)

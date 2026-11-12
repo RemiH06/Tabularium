@@ -116,6 +116,29 @@ Materias fuera del corpus de la v1. Sirven para medir la regla de citar o callar
 | Penal | 21 a 26, 28 | CNPP, Código Penal Federal |
 | Datos personales | 35 (confidencialidad de una gestoría) | LFPDPPP |
 
+Consultas que corre el script de evaluación (2026-11-12). El texto original de Remi no quedó guardado; estas son reformulaciones para México a partir de la materia, pendientes de que Remi las revise.
+
+| Original | Materia | Pregunta (callar) |
+|---|---|---|
+| 1 | Laboral | ¿Puedo pedir que me reduzcan la jornada laboral para cuidar a mi hijo? |
+| 2 | Laboral | Me despidieron sin causa, ¿cuánto me tienen que pagar de indemnización? |
+| 3 | Familiar | ¿Cuánto debe pagar de pensión alimenticia el padre de mis hijos? |
+| 4 | Bancario | Mi crédito hipotecario tiene una tasa mínima que no baja aunque bajen las tasas, ¿es legal? |
+| 5 | Civil | Mi vecino hace ruido toda la noche en el condominio, ¿qué puedo hacer? |
+| 6 | Consumo | Me cobraron de más en el recibo de luz, ¿cómo reclamo? |
+| 7 | Consumo | La tienda no me quiere cambiar un producto defectuoso con garantía, ¿qué hago? |
+| 8 | Civil | El dueño no me devuelve el depósito al terminar el contrato de arrendamiento, ¿qué hago? |
+| 9 | Concursal | No puedo pagar mis deudas, ¿puedo declararme en quiebra como persona? |
+| 10 | Administrativo | ¿Cómo impugno una multa de tránsito? |
+| 21 | Penal | Me detuvo la policía, ¿qué derechos tengo? |
+| 22 | Penal | ¿Cómo presento una denuncia ante el Ministerio Público? |
+| 23 | Penal | ¿Cuánto tiempo puede durar la prisión preventiva? |
+| 24 | Penal | ¿Qué pena tiene el robo a casa habitación? |
+| 25 | Penal | ¿Puedo llegar a un acuerdo reparatorio con la víctima para no ir a juicio? |
+| 26 | Penal | Me acusan de un delito, ¿tengo derecho a un defensor público? |
+| 28 | Penal | ¿Qué hago si alguien me amenaza por mensajes? |
+| 35 | Datos personales | ¿La gestoría puede compartir mis datos personales con otras empresas sin mi permiso? |
+
 ### Descartadas
 
 18, 29, 30, 32, 33, 36, 37, 38, 39 y 40 se le hacen a un despacho o gestoría (honorarios, plataforma, experiencia, duración, estrategia), no a un corpus de normas. La 18 (¿un asesor puede reducir mi carga legalmente?) pide una opinión: a lo más se citaría la razón de negocios del art. 5o.-A del CFF, que ya prueba la 26.
