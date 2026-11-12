@@ -12,16 +12,21 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 import time
 import urllib.request
 from datetime import date
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
+
+import certifi
 
 from .construir import FUENTES, Fuente, cache_dir, ruta_cache
 from .doc import texto_doc
 
 UA = "Mozilla/5.0 (compatible; legal-corpus-fetcher/0.1)"
+# El almacén de Windows no valida la cadena del SAT (2026-11-12); el de certifi sí.
+TLS = ssl.create_default_context(cafile=certifi.where())
 PAUSA = 2.5  # segundos entre peticiones a un mismo host (RNF-02 pide al menos 2)
 INDICE = "https://www.diputados.gob.mx/LeyesBiblio/index.htm"
 ULTIMA_REFORMA_DOC = re.compile(r"[ÚU]ltima reforma publicada DOF\s+(\d{2})-(\d{2})-(\d{4})")
@@ -42,7 +47,8 @@ class Cliente:
         t0 = time.time()
         m = {"url": url, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "ruta": str(ruta)}
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=240) as r:
+            with urllib.request.urlopen(urllib.request.Request(quote(url, safe=":/?&=%~"), headers={"User-Agent": UA}), timeout=240,
+                                        context=TLS) as r:
                 cuerpo = r.read()
                 m |= {"status": r.status, "ctype": r.headers.get("content-type", ""), "bytes": len(cuerpo),
                       "last_modified": r.headers.get("last-modified", "")}
@@ -115,3 +121,12 @@ def actualizar(fuentes: list[Fuente] = FUENTES, cliente: Cliente | None = None) 
                 estado["aviso"] = "el documento bajado no coincide con el índice; se vuelve a intentar en la siguiente corrida"
         leyes[c] = estado
     return {"leyes": leyes, "documentos": [u for u in cliente.bajados if u != INDICE], "reconstruir": any(e["bajada"] for e in leyes.values())}
+
+
+def fijos(urls: list[str], cliente: Cliente | None = None) -> list[str]:
+    """Baja los documentos que no cambian una vez publicados (RMF y compiladas) si faltan en la caché."""
+    cliente = cliente or Cliente()
+    for u in urls:
+        if not ruta_cache(u).exists():
+            cliente.bajar(u)
+    return cliente.bajados

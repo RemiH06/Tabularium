@@ -24,7 +24,7 @@ def db(tmp_path, monkeypatch):
     textos = {FUENTE.base_url: BASE, FUENTE.actual_url: LEY}
     monkeypatch.setattr(construir, "leer", lambda url: segmentar(textos[url]))
     ruta = tmp_path / "t.db"
-    resumen = construir.construir(ruta, [FUENTE])
+    resumen = construir.construir(ruta, [FUENTE], resoluciones=[])
     assert resumen[0]["reformados_desde_corte"] == ["2o"]
     return ruta
 
@@ -65,7 +65,7 @@ DOS_REFORMAS = LEY.replace("Texto nuevo.\nArtículo reformado DOF 01-04-2024",
 def _construir(tmp_path, monkeypatch, actual: str):
     textos = {FUENTE.base_url: BASE, FUENTE.actual_url: actual}
     monkeypatch.setattr(construir, "leer", lambda url: segmentar(textos[url]))
-    construir.construir(tmp_path / "t.db", [FUENTE])
+    construir.construir(tmp_path / "t.db", [FUENTE], resoluciones=[])
     return tmp_path / "t.db"
 
 
@@ -143,10 +143,10 @@ def test_busqueda_hibrida_y_cache_de_vectores(tmp_path, monkeypatch):
     textos = {FUENTE.base_url: BASE, FUENTE.actual_url: LEY}
     monkeypatch.setattr(construir, "leer", lambda url: segmentar(textos[url]))
     cache = vectores.Cache()
-    construir.construir(tmp_path / "a.db", [FUENTE], vectores=cache)
+    construir.construir(tmp_path / "a.db", [FUENTE], resoluciones=[], vectores=cache)
     assert cache.nuevos > 0
     nuevos, cache.nuevos = cache.nuevos, 0
-    construir.construir(tmp_path / "b.db", [FUENTE], vectores=cache)
+    construir.construir(tmp_path / "b.db", [FUENTE], resoluciones=[], vectores=cache)
     assert cache.nuevos == 0  # reconstruir no vuelve a embeber lo que ya está en la caché
     cache.close()
     with closing(almacen.abrir(tmp_path / "b.db")) as con:

@@ -43,7 +43,7 @@ def vigente(con, documento: str, unidad: str, fecha: str) -> str:
 @pytest.fixture(scope="module")
 def db(tmp_path_factory):
     ruta = tmp_path_factory.mktemp("real") / "tabularium.db"
-    resumen = {r["documento"]: r for r in construir.construir(ruta)}
+    resumen = {r["documento"]: r for r in construir.construir(ruta, resoluciones=[])}
     assert resumen["LIVA"]["reformados_desde_corte"] == []
     assert resumen["LISR"]["reformados_desde_corte"] == ["79"]  # DOF 01-04-2024, ver plan.md sección 11
     assert len(resumen["CFF"]["reformados_desde_corte"]) == 54  # 50 reformados y 4 adicionados, sección 13

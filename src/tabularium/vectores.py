@@ -22,6 +22,11 @@ REVISION = "4de13258303883538bd53b696b452bf8099f0858"  # fijada: otro peso cambi
 MODELO = "bge-m3"
 MAXIMO_TOKENS = 2048  # 4k tokens toman 54 s y 3.7 GB en la Pi; los fragmentos están hechos para caber en 2k
 FRAGMENTO = 6000  # caracteres del cuerpo de cada fragmento (más el contexto): unos 2k tokens
+DIMENSION = 1024
+
+
+def _hash(texto: str) -> str:
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
 class Modelo:
@@ -61,8 +66,24 @@ class Cache:
                          "PRIMARY KEY (modelo, hash))")
         self.nuevos = 0
 
+    def pendientes(self, textos) -> dict[str, str]:
+        """hash -> texto de los que no están en la caché: el lote para la GPU (`lotes/vectorizar_gpu.py`)."""
+        hechos = {h for (h,) in self.con.execute("SELECT hash FROM vectores WHERE modelo = ?", (MODELO,))}
+        return {h: t for t in textos if (h := _hash(t)) not in hechos}
+
+    def importar(self, hashes: list[str], vectores: np.ndarray) -> int:
+        """Guarda los vectores calculados por lote. Valida forma y norma: un archivo equivocado no entra."""
+        if vectores.ndim != 2 or len(hashes) != len(vectores) or vectores.shape[1] != DIMENSION:
+            raise ValueError(f"esperaba {len(hashes)} vectores de {DIMENSION}; llegó {vectores.shape}")
+        if not np.allclose(np.linalg.norm(vectores, axis=1), 1, atol=1e-2):
+            raise ValueError("los vectores no vienen normalizados")
+        with self.con:
+            cur = self.con.executemany("INSERT OR IGNORE INTO vectores VALUES (?, ?, ?)",
+                                       [(MODELO, h, v.astype(np.float32).tobytes()) for h, v in zip(hashes, vectores)])
+        return cur.rowcount
+
     def vector(self, texto: str) -> bytes:
-        h = hashlib.sha256(texto.encode("utf-8")).hexdigest()
+        h = _hash(texto)
         fila = self.con.execute("SELECT vector FROM vectores WHERE modelo = ? AND hash = ?", (MODELO, h)).fetchone()
         if fila:
             return fila[0]

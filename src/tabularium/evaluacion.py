@@ -57,8 +57,9 @@ def leer(ruta: Path = PREGUNTAS) -> tuple[list[Pregunta], list[dict[str, str]]]:
                 v = f.get("Versión esperada (DOF)")
                 version = "sin nota" if v and v.startswith("sin nota") else (
                     m.group(0) if v and (m := re.match(r"\d{4}-\d{2}-\d{2}", v)) else None)
-                claves = {almacen.clave(u) for u in re.findall(r"art\.\s*([^(),]+)", f["Unidad esperada"])}
-                preguntas.append(Pregunta(f["#"], f["Tipo"], f["Pregunta"], f["Documento"], claves, f["Fecha"], version))
+                claves = {almacen.clave(u) for u in re.findall(r"(?:art\.|regla)\s*([^(),]+)", f["Unidad esperada"])}
+                documento = re.sub(r"^RMF\s+(\d{4})$", r"RMF\1", f["Documento"])  # "RMF 2026" -> "RMF2026"
+                preguntas.append(Pregunta(f["#"], f["Tipo"], f["Pregunta"], documento, claves, f["Fecha"], version))
     return preguntas, callar
 
 
@@ -75,7 +76,7 @@ def evaluar(con: sqlite3.Connection, ruta: Path = PREGUNTAS, k: int = 5, buscado
     """`buscador(con, consulta, fecha, limite)`: por defecto `almacen.buscar`; los experimentos pasan otro."""
     buscador = buscador or almacen.buscar
     preguntas, callar = leer(ruta)
-    en_base = {r[0] for r in con.execute("SELECT id FROM documentos WHERE tipo = 'ley'")}
+    en_base = {r[0] for r in con.execute("SELECT id FROM documentos WHERE tipo IN ('ley', 'resolucion')")}
     filas, pendientes, tiempos = [], [], []
     for p in preguntas:
         if p.documento not in en_base:

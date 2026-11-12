@@ -42,7 +42,9 @@ DOCUMENTOS = {
     "LISR": re.compile(r"\bL?ISR\b|Impuesto sobre la Renta", re.I),
     "LIVA": re.compile(r"\bL?IVA\b|Impuesto al Valor Agregado", re.I),
     "CFF": re.compile(r"\bCFF\b|C[oó]digo Fiscal(?: de la Federaci[oó]n)?", re.I),
+    "RMF": re.compile(r"\bRMF\b|\bmiscel[aá]nea\b", re.I),
 }
+REGLA = re.compile(r"\bregla\s+(\d{1,2}(?:\.\d{1,3}){1,3})\b", re.I)
 
 
 def _plano(s: str) -> str:
@@ -73,9 +75,11 @@ def mencionados(texto: str) -> set[str]:
 
 
 def referencias(texto: str) -> list[tuple[str, str]]:
-    """Artículos citados por número con su documento: "art. 27 fracción V LISR" -> [("LISR", "27")].
-    Sin documento en la consulta no hay referencia: el mismo número existe en las tres leyes."""
-    docs = mencionados(texto)
+    """Unidades citadas por número con su documento: "art. 27 fracción V LISR" -> [("LISR", "27")].
+    Un artículo sin ley en la consulta no es referencia: el mismo número existe en las tres leyes.
+    Una regla ("regla 3.13.2") es de la RMF del año de la fecha de la consulta."""
+    reglas = [("RMF", m.group(1)) for m in REGLA.finditer(texto)]
+    docs = mencionados(texto) - {"RMF"}
     if len(docs) != 1:
-        return []
-    return [(docs.pop(), m.group(1).strip()) for m in REFERENCIA.finditer(texto)]
+        return reglas
+    return reglas + [(docs.pop(), m.group(1).strip()) for m in REFERENCIA.finditer(texto)]

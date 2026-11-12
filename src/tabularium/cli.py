@@ -20,11 +20,41 @@ def main() -> None:
     e.add_argument("-k", type=int, default=5)
     e.add_argument("--json", action="store_true", help="salida completa en JSON")
     sub.add_parser("servir", help="levanta el servidor MCP (TABULARIUM_HOST, TABULARIUM_PUERTO)")
+    pe = sub.add_parser("pendientes", help="exporta los fragmentos sin vector en la caché, para la GPU")
+    pe.add_argument("--db", type=Path)
+    pe.add_argument("salida", type=Path, help="archivo .jsonl ({hash, texto} por línea)")
+    im = sub.add_parser("importar", help="guarda en la caché los vectores calculados por lote")
+    im.add_argument("vectores", type=Path, help=".npz de lotes/vectorizar_gpu.py (hashes y vectores)")
     args = p.parse_args()
 
+    if args.orden in ("pendientes", "importar"):
+        from contextlib import closing
+        from .vectores import Cache
+        with closing(Cache()) as cache:
+            if args.orden == "pendientes":
+                from . import almacen
+                from .servidor import ruta_db
+                with closing(almacen.abrir(args.db or ruta_db())) as con:
+                    lote = cache.pendientes(t for _, t in almacen.fragmentos(con))
+                with args.salida.open("w", encoding="utf-8") as f:
+                    f.writelines(json.dumps({"hash": h, "texto": t}, ensure_ascii=False) + "\n" for h, t in lote.items())
+                print(f"{len(lote)} fragmentos sin vector en {args.salida}")
+            else:
+                import numpy as np
+                with np.load(args.vectores) as z:
+                    print(f"{cache.importar(list(z['hashes']), z['vectores'])} vectores nuevos en la caché")
+        return
+
     if args.orden == "descargar":
-        from .descarga import actualizar
-        resultado = actualizar()
+        from .descarga import Cliente, actualizar, fijos
+        from .rmf import FUENTES_RMF
+        cliente = Cliente()
+        resultado = actualizar(cliente=cliente)
+        # Los PDF de la RMF no cambian una vez publicados: solo se bajan los que faltan.
+        antes = len(cliente.bajados)
+        fijos([u for f in FUENTES_RMF for u in (f.original, *f.compiladas, *f.publicadas.values()) if u], cliente)
+        resultado["documentos"] += cliente.bajados[antes:]
+        resultado["reconstruir"] = resultado["reconstruir"] or len(cliente.bajados) > antes
         print(json.dumps(resultado, ensure_ascii=False, indent=2))
         if args.construir and resultado["reconstruir"]:
             _construir(args.db, not args.sin_vectores)

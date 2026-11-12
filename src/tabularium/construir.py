@@ -15,10 +15,11 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import almacen
+from . import almacen, aristas
 from .almacen import CORTE
 from .doc import texto_doc
-from .ley import Decreto, Ley, Unidad, segmentar
+from .ley import Decreto, Ley, Unidad, fecha_es, segmentar
+from .rmf import FUENTES_RMF, FuenteRmf
 from .vigencias import MISMO_DIA, PUBLICACIONES, deshacer, intermedia
 
 
@@ -96,13 +97,13 @@ class Construccion:
         return id_
 
     def version(self, documento: str, u: Unidad, desde: date, decreto: str, url: str,
-                hasta: date | None = None, texto: str | None = None, notas: str | None = None) -> None:
-        self.con.execute(
+                hasta: date | None = None, texto: str | None = None, notas: str | None = None) -> int:
+        return self.con.execute(
             "INSERT INTO versiones (documento, unidad, clave, tipo, jerarquia, vigente_desde, vigente_hasta, decreto, "
             "texto, notas, fuente_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (documento, u.id, almacen.clave(u.id), u.tipo, " > ".join(u.jerarquia), desde.isoformat(),
              hasta.isoformat() if hasta else None, decreto, u.texto if texto is None else texto,
-             "\n".join(u.notas) if notas is None else notas, url))
+             "\n".join(u.notas) if notas is None else notas, url)).lastrowid
 
     @staticmethod
     def vigor(documento: str, unidad: str, publicado: date, decretos: dict[date, Decreto]) -> date:
@@ -198,7 +199,119 @@ class Construccion:
                 "decretos": len(actual.decretos), "reformados_desde_corte": cambiados}
 
 
-def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None) -> list[dict]:
+    def rmf(self, f: FuenteRmf) -> dict:
+        """Una RMF: versión base de cada regla desde el original y una versión nueva en cada
+        modificación cuya marca trae la regla en la compilada correspondiente (ver `rmf.py`)."""
+        from . import rmf
+        original = rmf.segmentar(rmf.texto_pdf(_en_cache(f.original)))
+        compiladas = [rmf.segmentar(rmf.texto_pdf(_en_cache(u))) if u else None for u in f.compiladas]
+        if compiladas and compiladas[-1] is None:
+            raise ValueError(f"{f.documento}: la última compilada hace falta, trae los transitorios de cada modificación")
+        mods = compiladas[-1].modificaciones if compiladas else []
+        if len(mods) != len(f.compiladas):
+            raise ValueError(f"{f.documento}: {len(f.compiladas)} compiladas y {len(mods)} modificaciones en la última")
+
+        # Solo el Primero: los demás transitorios de la RMF fijan vigencias de anexos o de reglas sueltas.
+        primero = [u for u in original.transitorios if u.id == "Transitorio Primero"]
+        vigor, excepciones = Decreto(f.nombre, f.publicado, primero).entrada_en_vigor()
+        if vigor is None or excepciones:
+            raise ValueError(f"{f.documento}: vigencia no reconocida en su Transitorio Primero")
+        fin = date(f.anio + 1, 1, 1)  # "estará vigente hasta el 31 de diciembre"
+        self.documento(f.documento, f.nombre, "resolucion")
+        id_rmf = self.decreto(f.publicado, f.nombre, vigor, ley=f.documento)
+        for u in original.transitorios:
+            # shortcut: los transitorios de la RMF se toman del original; los que reforma una modificación
+            # (hay marcas "Transitorio Vigésimo Tercero") no tienen versión nueva todavía.
+            self.version(f.documento, u, vigor, id_rmf, f.original, hasta=fin)
+
+        ids_mod = []
+        for k, d in enumerate(mods):
+            url = f.compiladas[-1]
+            if not d.transitorios and k in f.publicadas:  # la compilada lo omitió
+                url = f.publicadas[k]
+                d.transitorios = rmf.transitorios(rmf.texto_pdf(_en_cache(url)))
+            v, exc = d.entrada_en_vigor()
+            id_ = self.decreto(d.publicado, f"{d.titulo} para {f.anio}", v if not exc else None, ley=f.documento)
+            ids_mod.append((id_, v, exc))
+            for u in d.transitorios:
+                self.version(id_, u, d.publicado, id_, url)
+
+        # Por regla: [(desde, texto, decreto, url, notas, jerarquía, líneas de referencias)]
+        historia = {r.id: [(vigor, r.texto, id_rmf, f.original, "", r.jerarquia, r.referencias)] for r in original.reglas}
+        ruido, sin_cambio, nuevas_sin_marca = [], [], []
+        for k, (comp, url, (id_mod, v, exc)) in enumerate(zip(compiladas, f.compiladas, ids_mod)):
+            if (v is None or exc) and any(fecha == mods[k].publicado for c in compiladas[k:] if c
+                                          for r in c.reglas for _, fecha in r.marcas):
+                raise ValueError(f"{f.documento}: la modificación del DOF {mods[k].publicado} tiene vigencia "
+                                 "no reconocida o con excepciones; anótala en vigencias.PUBLICACIONES")
+            if comp is None:  # sin compilada: las reglas marcadas salen de la siguiente que sí hay
+                j = next(i for i in range(k + 1, len(compiladas)) if compiladas[i])
+                comp, url = compiladas[j], f.compiladas[j]
+                despues = {m.publicado for m in mods[k + 1:j + 1]}
+                publicada = None
+                for r in comp.reglas:
+                    if not any(fecha == mods[k].publicado for _, fecha in r.marcas):
+                        continue
+                    texto, fuente, refs = r.texto, url, r.referencias
+                    if despues & {fecha for _, fecha in r.marcas}:  # la volvió a tocar otra: texto de la publicación
+                        publicada = publicada or {x.id: x for x in rmf.segmentar(
+                            rmf.texto_pdf(_en_cache(f.publicadas[k])), minimo=1).reglas}
+                        if r.id not in publicada or re.search(r"(?:\.\s*){3}|…", publicada[r.id].texto):
+                            raise ValueError(f"{f.documento} regla {r.id}: la modificación {k + 1} no tiene compilada "
+                                             "y su publicación no trae la regla completa")
+                        texto, fuente, refs = publicada[r.id].texto.strip("“”\" "), f.publicadas[k], publicada[r.id].referencias
+                    notas = [n for n in r.notas if (fn := fecha_es(n)) and fn <= mods[k].publicado]
+                    historia.setdefault(r.id, []).append((v, texto, id_mod, fuente, "\n".join(notas), r.jerarquia, refs))
+                continue
+            for r in comp.reglas:
+                marcada = any(fecha == mods[k].publicado for _, fecha in r.marcas)
+                previo = historia.get(r.id)
+                if not marcada and previo is None:
+                    # Regla nueva sin marca (el SAT la omitió: 2.8.3.7 y 2.12.12 de 2025): rige desde esta modificación.
+                    if v is None or exc:
+                        raise ValueError(f"{f.documento} regla {r.id}: nueva en la compilada {k + 1}, sin vigencia legible")
+                    nuevas_sin_marca.append(f"{r.id}@{k + 1}")
+                    historia[r.id] = [(v, r.texto, id_mod, url, "", r.jerarquia, r.referencias)]
+                    continue
+                if not marcada:
+                    if _plano(previo[-1][1]) != _plano(r.texto):
+                        ruido.append(f"{r.id}@{k + 1}")
+                    continue
+                if previo and _plano(previo[-1][1]) == _plano(r.texto):
+                    sin_cambio.append(f"{r.id}@{k + 1}")
+                historia.setdefault(r.id, []).append((v, r.texto, id_mod, url, "\n".join(r.notas), r.jerarquia,
+                                                      r.referencias))
+
+        for id_, versiones in historia.items():
+            for j, (desde, texto, decreto, url, notas, jerarquia, refs) in enumerate(versiones):
+                hasta = versiones[j + 1][0] if j + 1 < len(versiones) else fin
+                if hasta <= desde:  # dos modificaciones que rigen el mismo día: queda la última
+                    continue
+                version = self.version(f.documento, Unidad(id_, "regla", jerarquia=jerarquia), desde, decreto, url,
+                                       hasta, texto, notas)
+                self.con.executemany("INSERT OR IGNORE INTO aristas VALUES (?, ?, ?, ?)",
+                                     [(version, *a) for a in aristas.referencias_de_regla(refs, f.anio)])
+        return {"documento": f.documento, "reglas": len(historia), "transitorios": len(original.transitorios),
+                "modificaciones": len(mods),
+                "reformadas": sum(1 for v in historia.values() if len(v) > 1 or v[0][2] != id_rmf),
+                # Texto distinto sin marca: diferencias de formato entre el original y la compilada (RF-03).
+                "ruido": ruido, "marcadas_sin_cambio": sin_cambio, "nuevas_sin_marca": nuevas_sin_marca}
+
+
+def _en_cache(url: str) -> Path:
+    ruta = ruta_cache(url)
+    if not ruta.exists():
+        raise FileNotFoundError(f"falta {ruta} en la caché (fuente: {url}); bájala con `tabularium descargar`")
+    return ruta
+
+
+def _plano(texto: str) -> str:
+    """Para comparar versiones de formatos distintos: sin espacios ni guiones de corte."""
+    return re.sub(r"[\s\-‐\xad]", "", texto)
+
+
+def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None,
+              resoluciones: list[FuenteRmf] = FUENTES_RMF) -> list[dict]:
     """Construye en un archivo temporal y lo cambia de golpe: el servidor nunca ve una base a medias.
     `vectores`: una `vectores.Cache` para llenar los embeddings; sin ella, la base queda solo con BM25."""
     destino.parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +326,8 @@ def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None) -> 
                 actual = leer(f.actual_url)
                 leyes.append((f, actual, actual if f.base_url == f.actual_url else leer(f.base_url)))
                 c.decretos_de(f, actual)
-            resumen = [c.ley(*ley) for ley in leyes]
+            resumen = [c.ley(*ley) for ley in leyes] + [c.rmf(f) for f in resoluciones]
+            resumen.append({"documento": "grafo", **aristas.enlazar(con)})
             almacen.indexar(con)
             if vectores is not None:
                 almacen.vectorizar(con, vectores)

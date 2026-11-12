@@ -11,7 +11,8 @@ from mcp.server.mcpserver import MCPServer
 from . import almacen
 
 INSTRUCCIONES = (
-    "Corpus versionado de leyes fiscales de México (por ahora LIVA, LISR y CFF, desde el 2024-01-01). "
+    "Corpus versionado de normas fiscales de México desde el 2024-01-01: LIVA, LISR, CFF y la Resolución "
+    "Miscelánea Fiscal de cada año (RMF2024, RMF2025 y RMF2026, con sus modificaciones). "
     "Regla: cita documento, unidad y fecha de versión de cada resultado (campo `cita.texto`) o no respondas. "
     "Las preguntas fiscales son por ejercicio: pasa `fecha` (AAAA-MM-DD) cuando la pregunta sea sobre otro "
     "momento que hoy. No sustituye a un abogado o contador que firme."
@@ -28,9 +29,10 @@ def crear_servidor(db: Path | None = None) -> MCPServer:
 
     @servidor.tool()
     def articulo(documento: str, unidad: str, fecha: str | None = None) -> dict[str, Any]:
-        """Texto de un artículo o transitorio vigente en `fecha` (hoy si se omite), con su cita.
+        """Texto de un artículo, regla o transitorio vigente en `fecha` (hoy si se omite), con su cita.
 
-        documento: "LIVA", "LISR", "CFF" o un decreto ("DOF-2024-04-01"). unidad: "1o.-A", "79", "Transitorio Único".
+        documento: "LIVA", "LISR", "CFF", "RMF" (la del año de `fecha`), "RMF2025" o un decreto ("DOF-2024-04-01").
+        unidad: "1o.-A", "79", "2.7.1.21" (regla), "Transitorio Único".
         """
         with closing(almacen.abrir(db)) as con:
             return almacen.articulo(con, documento, unidad, fecha)
@@ -43,10 +45,13 @@ def crear_servidor(db: Path | None = None) -> MCPServer:
 
     @servidor.tool()
     def buscar(consulta: str, fecha: str | None = None, limite: int = 5) -> list[dict]:
-        """Búsqueda híbrida (BM25 sobre raíces y embeddings bge-m3) en lo vigente en `fecha`. Un
-        artículo citado por número y ley ("art. 27 LISR") sale primero, con `puntaje` nulo. Devuelve fragmentos con
-        cita; el texto completo se pide con `articulo`. Que salgan resultados no significa que el
-        corpus cubra la pregunta: si ninguno trata el tema, no respondas."""
+        """Búsqueda híbrida (BM25 sobre raíces y embeddings bge-m3) en lo vigente en `fecha`, con un
+        salto por el grafo de referencias. Un artículo o regla citado por número ("art. 27 LISR",
+        "regla 2.7.1.21") sale primero, con `puntaje` nulo. Devuelve fragmentos con cita y
+        `relacionadas` (lo que la unidad remite o reglamenta y las reglas de la RMF que la
+        reglamentan); el texto completo se pide con `articulo`. La ley prevalece sobre la RMF, que
+        solo la detalla. Que salgan resultados no significa que el corpus cubra la pregunta: si
+        ninguno trata el tema, no respondas."""
         with closing(almacen.abrir(db)) as con:
             return almacen.buscar(con, consulta, fecha, limite)
 

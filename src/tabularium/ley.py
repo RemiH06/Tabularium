@@ -103,6 +103,8 @@ class Decreto:
         excepciones = len(con_vigor) > 1 or bool(re.search(r"\b(excepto|salvo|excepci[oó]n)\b", oracion, re.I))
         if re.search(r"d[ií]a siguiente", oracion, re.I):
             return self.publicado + timedelta(days=1), excepciones
+        if re.search(r"(?:fecha|d[ií]a) de su publicaci[oó]n", oracion, re.I):  # Segunda RMRMF 2026
+            return self.publicado, excepciones
         return fecha_es(oracion), excepciones
 
 

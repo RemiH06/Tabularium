@@ -6,7 +6,7 @@ import re
 
 
 def contexto(nombre_documento: str, jerarquia: str, unidad: str, tipo: str) -> str:
-    etiqueta = f"Artículo {unidad}" if tipo == "articulo" else unidad
+    etiqueta = {"articulo": f"Artículo {unidad}", "regla": f"Regla {unidad}"}.get(tipo, unidad)
     return " > ".join(p for p in (nombre_documento, jerarquia, etiqueta) if p) + "\n"
 
 
