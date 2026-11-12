@@ -43,8 +43,8 @@ def crear_servidor(db: Path | None = None) -> MCPServer:
 
     @servidor.tool()
     def buscar(consulta: str, fecha: str | None = None, limite: int = 5) -> list[dict]:
-        """Búsqueda por palabras (BM25 sobre raíces) en lo vigente en `fecha`. Un artículo citado
-        por número y ley ("art. 27 LISR") sale primero, con `puntaje` nulo. Devuelve fragmentos con
+        """Búsqueda híbrida (BM25 sobre raíces y embeddings bge-m3) en lo vigente en `fecha`. Un
+        artículo citado por número y ley ("art. 27 LISR") sale primero, con `puntaje` nulo. Devuelve fragmentos con
         cita; el texto completo se pide con `articulo`. Que salgan resultados no significa que el
         corpus cubra la pregunta: si ninguno trata el tema, no respondas."""
         with closing(almacen.abrir(db)) as con:
@@ -54,6 +54,10 @@ def crear_servidor(db: Path | None = None) -> MCPServer:
 
 
 def servir() -> None:
+    with closing(almacen.abrir(ruta_db())) as con:
+        if con.execute("SELECT 1 FROM fragmentos LIMIT 1").fetchone():
+            from .vectores import modelo
+            modelo()  # se carga al arrancar y no en la primera consulta (1.4 s en la Pi)
     # Solo loopback por defecto. En frambuesa-yi se publica a la tailnet, nunca a internet (RNF-07).
     crear_servidor().run("streamable-http", host=os.environ.get("TABULARIUM_HOST", "127.0.0.1"),
                          port=int(os.environ.get("TABULARIUM_PUERTO", "8061")))

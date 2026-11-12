@@ -71,7 +71,9 @@ def version_correcta(h: dict, p: Pregunta) -> bool:
     return p.version is None or c["publicado_dof"] == p.version
 
 
-def evaluar(con: sqlite3.Connection, ruta: Path = PREGUNTAS, k: int = 5) -> dict:
+def evaluar(con: sqlite3.Connection, ruta: Path = PREGUNTAS, k: int = 5, buscador=None) -> dict:
+    """`buscador(con, consulta, fecha, limite)`: por defecto `almacen.buscar`; los experimentos pasan otro."""
+    buscador = buscador or almacen.buscar
     preguntas, callar = leer(ruta)
     en_base = {r[0] for r in con.execute("SELECT id FROM documentos WHERE tipo = 'ley'")}
     filas, pendientes, tiempos = [], [], []
@@ -80,7 +82,7 @@ def evaluar(con: sqlite3.Connection, ruta: Path = PREGUNTAS, k: int = 5) -> dict
             pendientes.append(p.n)
             continue
         t0 = time.perf_counter()
-        hits = almacen.buscar(con, p.texto, p.fecha, k)
+        hits = buscador(con, p.texto, p.fecha, k)
         tiempos.append(time.perf_counter() - t0)
         rango = next((i for i, h in enumerate(hits, 1)
                       if h["documento"] == p.documento and almacen.clave(h["unidad"]) in p.claves), None)
@@ -89,7 +91,7 @@ def evaluar(con: sqlite3.Connection, ruta: Path = PREGUNTAS, k: int = 5) -> dict
                       "primero": f"{hits[0]['documento']} {hits[0]['unidad']}" if hits else None})
     casos = []
     for f in callar:
-        hits = almacen.buscar(con, f["Pregunta (callar)"], None, 1)
+        hits = buscador(con, f["Pregunta (callar)"], None, 1)
         casos.append({"original": f["Original"], "materia": f["Materia"],
                       "primero": f"{hits[0]['documento']} {hits[0]['unidad']}" if hits else None,
                       "puntaje": hits[0]["puntaje"] if hits else None})

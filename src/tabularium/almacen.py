@@ -11,6 +11,8 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
+import numpy as np
+
 from . import lexico
 
 CORTE = date(2024, 1, 1)  # inicio del corpus: la línea base es el texto vigente a esta fecha
@@ -59,6 +61,11 @@ CREATE VIRTUAL TABLE versiones_fts USING fts5(
 -- Raíces sin palabras vacías (`lexico.raices`), con rowid = versiones.id. Ordena `buscar`;
 -- versiones_fts queda para los fragmentos, que se muestran con el texto literal.
 CREATE VIRTUAL TABLE busqueda USING fts5(unidad, texto, content='');
+-- Un vector por fragmento de cada versión (`vectores.py`); vacía si la base se construyó sin vectores.
+CREATE TABLE fragmentos (
+    version INTEGER NOT NULL REFERENCES versiones(id),
+    vector BLOB NOT NULL
+);
 """
 
 _COLUMNAS = """v.documento, d.nombre, v.unidad, v.tipo, v.jerarquia, v.vigente_desde, v.vigente_hasta,
@@ -159,11 +166,49 @@ def indexar(con: sqlite3.Connection) -> None:
                      for i, u, t in con.execute("SELECT id, unidad, texto FROM versiones").fetchall()))
 
 
-PREFERENCIA = 1.5  # multiplica el puntaje de los artículos de una ley que la consulta nombra
+def vectorizar(con: sqlite3.Connection, cache) -> None:
+    """Llena `fragmentos` con los vectores de `cache` (`vectores.Cache`), que embebe lo que no tenga."""
+    from .fragmentos import contexto, partir
+    from .vectores import FRAGMENTO
+    filas = con.execute("SELECT v.id, d.nombre, v.jerarquia, v.unidad, v.tipo, v.texto FROM versiones v "
+                        "JOIN documentos d ON d.id = v.documento ORDER BY v.id").fetchall()
+    for id_, nombre, jerarquia, unidad, tipo, texto in filas:
+        ctx = contexto(nombre, jerarquia, unidad, tipo)
+        con.executemany("INSERT INTO fragmentos (version, vector) VALUES (?, ?)",
+                        [(id_, cache.vector(ctx + parte)) for parte in partir(texto, FRAGMENTO)])
+
+
+PREFERENCIA = 1.5  # multiplica el puntaje BM25 de los artículos de una ley que la consulta nombra
+CANDIDATOS = 20  # de cada lista antes de fusionar
+RRF, PESO_VECTORES = 60, 2.0  # fusión por rango; con peso de 1.5 a 3 el recall no cambió (plan.md, sección 13)
+
+
+def _por_bm25(con: sqlite3.Connection, consulta: str, terminos: list[str], fecha: str) -> list[int]:
+    leyes = sorted(lexico.mencionados(consulta))
+    return [r[0] for r in con.execute(
+        f"SELECT v.id, -bm25(busqueda) * (CASE WHEN v.documento IN ({','.join('?' * len(leyes)) or 'NULL'}) "
+        f"THEN {PREFERENCIA} ELSE 1 END) AS puntaje FROM busqueda JOIN versiones v ON v.id = busqueda.rowid "
+        f"WHERE busqueda MATCH ? AND {_VIGENTE.replace(':fecha', '?')} ORDER BY puntaje DESC LIMIT ?",
+        (*leyes, " OR ".join(f'"{t}"' for t in terminos), fecha, fecha, CANDIDATOS))]
+
+
+def _por_vector(con: sqlite3.Connection, consulta: str, fecha: str) -> list[int]:
+    """Versiones vigentes ordenadas por su fragmento más parecido. Fuerza bruta: son ~1,200 vectores."""
+    filas = con.execute(f"SELECT v.id, f.vector FROM fragmentos f JOIN versiones v ON v.id = f.version "
+                        f"WHERE {_VIGENTE}", {"fecha": fecha}).fetchall()
+    if not filas:
+        return []
+    from .vectores import modelo
+    matriz = np.frombuffer(b"".join(r[1] for r in filas), dtype=np.float32).reshape(len(filas), -1)
+    mejor: dict[int, float] = {}
+    for (version, _), s in zip(filas, (matriz @ modelo().embeber(consulta)).tolist()):
+        mejor[version] = max(mejor.get(version, -1.0), s)
+    return sorted(mejor, key=mejor.__getitem__, reverse=True)[:CANDIDATOS]
 
 
 def buscar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, limite: int = 5) -> list[dict]:
-    """BM25 sobre raíces de las versiones vigentes en `fecha`. Un artículo citado por número y ley
+    """Búsqueda híbrida sobre las versiones vigentes en `fecha`: BM25 sobre raíces y embeddings,
+    fusionados por rango. Sin vectores en la base, solo BM25. Un artículo citado por número y ley
     ("art. 27 fracción V LISR") sale primero. Devuelve un fragmento; el texto completo, con `articulo`."""
     f, limite = _fecha(fecha), max(1, min(limite, 20))
     salida = []
@@ -177,23 +222,23 @@ def buscar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, lim
     terminos = lexico.consulta(consulta)
     if not terminos and not salida:
         raise ValueError("la consulta no tiene palabras que buscar")
-    if terminos:
-        leyes = sorted(lexico.mencionados(consulta))
-        filas = con.execute(
-            f"SELECT {_COLUMNAS}, v.id, -bm25(busqueda) * (CASE WHEN v.documento IN "
-            f"({','.join('?' * len(leyes)) or 'NULL'}) THEN {PREFERENCIA} ELSE 1 END) AS puntaje "
-            f"FROM busqueda JOIN {_JOIN.replace('versiones v', 'versiones v ON v.id = busqueda.rowid', 1)} "
-            f"WHERE busqueda MATCH ? AND {_VIGENTE.replace(':fecha', '?')} ORDER BY puntaje DESC LIMIT ?",
-            (*leyes, " OR ".join(f'"{t}"' for t in terminos), f, f, limite + len(salida))).fetchall()
-        # Fragmento del texto literal: cada raíz como prefijo ("deduc"* resalta "deducciones").
-        ids = [r["id"] for r in filas]
-        fragmentos = dict(con.execute(
-            f"SELECT rowid, snippet(versiones_fts, 1, '«', '»', ' … ', 40) FROM versiones_fts "
-            f"WHERE versiones_fts MATCH ? AND rowid IN ({','.join('?' * len(ids)) or 'NULL'})",
-            (" OR ".join(f'"{t}"*' for t in terminos), *ids)).fetchall())
-        vistos = {(s["documento"], s["unidad"]) for s in salida}
-        salida += [_salida(r, fragmento=fragmentos.get(r["id"], ""), puntaje=round(r["puntaje"], 3))
-                   for r in filas if (r["documento"], r["unidad"]) not in vistos]
-    # puntaje: BM25 positivo (más alto, más relevante); solo se compara dentro de una consulta.
+    puntos: dict[int, float] = {}
+    for peso, lista in ((1.0, _por_bm25(con, consulta, terminos, f) if terminos else []),
+                        (PESO_VECTORES, _por_vector(con, consulta, f))):
+        for rango, i in enumerate(lista, 1):
+            puntos[i] = puntos.get(i, 0.0) + peso / (RRF + rango)
+    ids = sorted(puntos, key=puntos.__getitem__, reverse=True)
+    marcas = ",".join("?" * len(ids)) or "NULL"
+    filas = {r["id"]: r for r in con.execute(f"SELECT {_COLUMNAS}, v.id, substr(v.texto, 1, 300) AS inicio "
+                                             f"FROM {_JOIN} WHERE v.id IN ({marcas})", ids)}
+    # Fragmento del texto literal: cada raíz como prefijo ("deduc"* resalta "deducciones").
+    fragmentos = dict(con.execute(
+        f"SELECT rowid, snippet(versiones_fts, 1, '«', '»', ' … ', 40) FROM versiones_fts "
+        f"WHERE versiones_fts MATCH ? AND rowid IN ({marcas})",
+        (" OR ".join(f'"{t}"*' for t in terminos), *ids)).fetchall()) if terminos else {}
+    vistos = {(s["documento"], s["unidad"]) for s in salida}
+    salida += [_salida(r, fragmento=fragmentos.get(i) or r["inicio"], puntaje=round(puntos[i] * 1000, 2))
+               for i in ids if (r := filas[i]) and (r["documento"], r["unidad"]) not in vistos]
+    # puntaje: fusión por rango ×1000 (más alto, más relevante); solo se compara dentro de una consulta.
     # None: el artículo se pidió por número.
     return salida[:limite]

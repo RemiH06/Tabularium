@@ -121,3 +121,37 @@ def test_rf10_cita_completa_en_las_tres_herramientas(db):
         assert resultados, nombre
         for res in resultados:
             assert all(res["cita"][c] for c in CAMPOS_RF10), (nombre, res["cita"])
+
+
+class ModeloFalso:
+    """Vector por conceptos: "descuenta" y "retener" caen en la misma dimensión sin compartir raíz."""
+    CONCEPTOS = [("retener", "retienen", "descuenta"), ("impuesto", "pago"), ("sufijo",)]
+    llamadas = 0
+
+    def embeber(self, texto):
+        import numpy as np
+        ModeloFalso.llamadas += 1
+        t = texto.lower()
+        v = np.array([sum(t.count(p) for p in c) for c in self.CONCEPTOS] + [0.01], dtype=np.float32)
+        return v / np.linalg.norm(v)
+
+
+def test_busqueda_hibrida_y_cache_de_vectores(tmp_path, monkeypatch):
+    from tabularium import vectores
+    monkeypatch.setenv("TABULARIUM_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(vectores, "modelo", lambda: ModeloFalso())
+    textos = {FUENTE.base_url: BASE, FUENTE.actual_url: LEY}
+    monkeypatch.setattr(construir, "leer", lambda url: segmentar(textos[url]))
+    cache = vectores.Cache()
+    construir.construir(tmp_path / "a.db", [FUENTE], vectores=cache)
+    assert cache.nuevos > 0
+    nuevos, cache.nuevos = cache.nuevos, 0
+    construir.construir(tmp_path / "b.db", [FUENTE], vectores=cache)
+    assert cache.nuevos == 0  # reconstruir no vuelve a embeber lo que ya está en la caché
+    cache.close()
+    with closing(almacen.abrir(tmp_path / "b.db")) as con:
+        assert con.execute("SELECT count(*) FROM fragmentos").fetchone()[0] == nuevos
+        # Sin ninguna palabra en común con el artículo: solo lo encuentran los vectores.
+        r = almacen.buscar(con, "agente que descuenta", "2024-06-01")
+        assert r[0]["unidad"] == "1o.-A" and r[0]["puntaje"] > 0
+        assert all(x["cita"]["fuente_url"] for x in r)

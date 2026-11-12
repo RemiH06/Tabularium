@@ -198,8 +198,9 @@ class Construccion:
                 "decretos": len(actual.decretos), "reformados_desde_corte": cambiados}
 
 
-def construir(destino: Path, fuentes: list[Fuente] = FUENTES) -> list[dict]:
-    """Construye en un archivo temporal y lo cambia de golpe: el servidor nunca ve una base a medias."""
+def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None) -> list[dict]:
+    """Construye en un archivo temporal y lo cambia de golpe: el servidor nunca ve una base a medias.
+    `vectores`: una `vectores.Cache` para llenar los embeddings; sin ella, la base queda solo con BM25."""
     destino.parent.mkdir(parents=True, exist_ok=True)
     temporal = destino.with_suffix(".construyendo")
     temporal.unlink(missing_ok=True)
@@ -214,6 +215,8 @@ def construir(destino: Path, fuentes: list[Fuente] = FUENTES) -> list[dict]:
                 c.decretos_de(f, actual)
             resumen = [c.ley(*ley) for ley in leyes]
             almacen.indexar(con)
+            if vectores is not None:
+                almacen.vectorizar(con, vectores)
     except BaseException:
         con.close()
         temporal.unlink(missing_ok=True)

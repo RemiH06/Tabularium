@@ -11,9 +11,10 @@ def main() -> None:
     sub = p.add_subparsers(dest="orden", required=True)
     d = sub.add_parser("descargar", help="baja las leyes que cambiaron en LeyesBiblio (RF-01)")
     d.add_argument("--construir", action="store_true", help="regenera la base si bajó algo")
-    d.add_argument("--db", type=Path)
     c = sub.add_parser("construir", help="regenera la base desde la caché de documentos fuente")
-    c.add_argument("--db", type=Path, help="ruta de la base (por defecto TABULARIUM_DB o data/tabularium.db)")
+    for s in (d, c):
+        s.add_argument("--db", type=Path, help="ruta de la base (por defecto TABULARIUM_DB o data/tabularium.db)")
+        s.add_argument("--sin-vectores", action="store_true", help="solo BM25: no baja el modelo ni embebe")
     e = sub.add_parser("evaluar", help="recall@k con las preguntas de docs/preguntas_prueba.md (RNF-06)")
     e.add_argument("--db", type=Path)
     e.add_argument("-k", type=int, default=5)
@@ -26,9 +27,9 @@ def main() -> None:
         resultado = actualizar()
         print(json.dumps(resultado, ensure_ascii=False, indent=2))
         if args.construir and resultado["reconstruir"]:
-            _construir(args.db)
+            _construir(args.db, not args.sin_vectores)
     elif args.orden == "construir":
-        _construir(args.db)
+        _construir(args.db, not args.sin_vectores)
     elif args.orden == "evaluar":
         from contextlib import closing
         from . import almacen
@@ -42,12 +43,18 @@ def main() -> None:
         servir()
 
 
-def _construir(db: Path | None) -> None:
+def _construir(db: Path | None, con_vectores: bool) -> None:
     from .construir import construir
     from .servidor import ruta_db
+    from .vectores import Cache
     destino = db or ruta_db()
-    print(json.dumps(construir(destino), ensure_ascii=False, indent=2))
-    print(f"base lista en {destino}")
+    cache = Cache() if con_vectores else None
+    try:
+        print(json.dumps(construir(destino, vectores=cache), ensure_ascii=False, indent=2))
+    finally:
+        if cache:
+            cache.close()
+    print(f"base lista en {destino}" + (f"; {cache.nuevos} fragmentos embebidos" if cache else ", sin vectores"))
 
 
 if __name__ == "__main__":
