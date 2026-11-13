@@ -19,9 +19,9 @@ from . import almacen, aristas
 from .almacen import CORTE
 from .doc import texto_doc
 from .ley import Decreto, Ley, Unidad, fecha_es, segmentar
-from .anexos import FUENTES_ANEXOS, FuenteAnexo
+from .anexos import FuenteAnexo
 from .anexos import vigor as vigor_anexo
-from .rmf import FUENTES_RMF, FuenteRmf
+from .rmf import FuenteRmf
 from .vigencias import MISMO_DIA, PUBLICACIONES, deshacer, intermedia
 
 
@@ -399,12 +399,17 @@ def _plano(texto: str) -> str:
 
 
 def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None,
-              resoluciones: list[FuenteRmf] = FUENTES_RMF, anexos: list[FuenteAnexo] | None = None) -> list[dict]:
+              resoluciones: list[FuenteRmf] | None = None, anexos: list[FuenteAnexo] | None = None) -> list[dict]:
     """Construye en un archivo temporal y lo cambia de golpe: el servidor nunca ve una base a medias.
     `vectores`: una `vectores.Cache` para llenar los embeddings; sin ella, la base queda solo con BM25.
-    `anexos`: por omisión, los de los años de `resoluciones`."""
-    if anexos is None:
-        anexos = [a for a in FUENTES_ANEXOS if a.anio in {r.anio for r in resoluciones}]
+    `resoluciones`: por omisión, las del minisitio del SAT (`minisitio.fuentes`). `anexos`: por
+    omisión, los de los años de `resoluciones`."""
+    if resoluciones is None or (anexos is None and resoluciones):
+        from . import minisitio  # minisitio importa de este módulo
+        del_sat, anexos_sat = minisitio.fuentes()
+        resoluciones = del_sat if resoluciones is None else resoluciones
+        anexos = [a for a in anexos_sat if a.anio in {r.anio for r in resoluciones}] if anexos is None else anexos
+    anexos = anexos or []
     destino.parent.mkdir(parents=True, exist_ok=True)
     temporal = destino.with_suffix(".construyendo")
     temporal.unlink(missing_ok=True)

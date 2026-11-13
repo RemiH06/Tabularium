@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .ley import fecha_es
-from .rmf import AVISO, ENCABEZADO_DOF, ORDINALES, SAT
+from .rmf import AVISO, ENCABEZADO_DOF
 
 
 @dataclass(frozen=True)
@@ -30,21 +30,6 @@ class FuenteAnexo:
     @property
     def nombre(self) -> str:
         return f"Anexo {self.numero} de la Resolución Miscelánea Fiscal para {self.anio}"
-
-
-# Nombres de archivo del HTML de cada año (docs/fuentes.md, ficha 5). shortcut: lista fija hasta RF-06.
-FUENTES_ANEXOS = [
-    FuenteAnexo(8, 2024, date(2023, 12, 29), SAT + "documentos2024/rmf/anexos/Anexo_8_RMF2024-29122023.pdf"),
-    FuenteAnexo(8, 2025, date(2024, 12, 30), SAT + "documentos2025/rmf/anexos/Anexo8_RMF2025-30122024.pdf"),
-    FuenteAnexo(8, 2026, date(2025, 12, 28), SAT + "documentos2026/rmf/anexos/Anexo-8-RMF-2026_DOF-28122025.pdf"),
-    FuenteAnexo(29, 2024, date(2024, 1, 22), SAT + "documentos2024/rmf/anexos/Anexo_29_RMF2024-22012024.pdf", (
-        (date(2024, 6, 4), SAT + "documentos2024/rmf/compiladas/Compilado_Primera_Modificacion_Anexo_29_de_la-RMF_2024-07062024.pdf"),
-        (date(2024, 12, 12), SAT + "documentos2024/rmf/compiladas/Compilado_Segunda_Modificacion_Anexo_29_de_la-RMF_2024-12122024.pdf"))),
-    FuenteAnexo(29, 2025, date(2025, 1, 3), SAT + "documentos2025/rmf/anexos/Anexo29_RMF2025_03012025.pdf", (
-        (date(2025, 11, 3), SAT + "documentos2025/rmf/compiladas/Compilado_Primera_Modificacion_Anexo_29_RMF2025-03112025.pdf"),)),
-    FuenteAnexo(29, 2026, date(2026, 1, 9), SAT + "documentos2026/rmf/anexos/Anexo_29_RMF2026-09012026.pdf", (
-        (date(2026, 7, 17), SAT + "documentos2026/rmf/compiladas/Compilado_PrimeraModificacion_Anexo29_RMF2026-17072026.pdf"),)),
-]
 
 
 PAGINA = re.compile(r"^P[aá]gina \d+ de \d+$")

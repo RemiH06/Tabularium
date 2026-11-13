@@ -68,19 +68,21 @@ def main() -> None:
             print(json.dumps(novellae(con, args.desde, args.hasta, args.documento), ensure_ascii=False, indent=2))
     elif args.orden == "descargar":
         from . import dof
+        from . import minisitio
         from .descarga import Cliente, actualizar, fijos
-        from .anexos import FUENTES_ANEXOS
-        from .rmf import FUENTES_RMF
         cliente = Cliente()
         hoy = date.today()
         revision = dof.revisar(dof.dias(hoy - timedelta(max(args.dias, 1) - 1), hoy), cliente)
         resultado = actualizar(cliente=cliente)
         resultado["documentos"] = [u for u in resultado["documentos"] if "sidof.segob.gob.mx" not in u]
         resultado["publicaciones"] = revision["publicaciones"]
-        # Los PDF de la RMF y sus anexos no cambian una vez publicados: solo se bajan los que faltan.
+        # Las páginas del minisitio dicen qué hay; los PDF no cambian una vez publicados: solo se bajan
+        # los que faltan, y un PDF nuevo (una compilada, la RMF del año siguiente) pide reconstruir.
+        minisitio.refrescar(cliente, hoy)
         antes = len(cliente.bajados)
-        fijos([u for f in FUENTES_RMF for u in (f.original, *f.compiladas, *f.publicadas.values()) if u]
-              + [u for f in FUENTES_ANEXOS for u in (f.url, *(c for _, c in f.modificaciones))], cliente)
+        resoluciones, anexos = minisitio.fuentes()
+        fijos([u for f in resoluciones for u in (f.original, *f.compiladas, *f.publicadas.values()) if u]
+              + [u for f in anexos for u in (f.url, *(c for _, c in f.modificaciones))], cliente)
         resultado["documentos"] += cliente.bajados[antes:]
         nuevas = _publicaciones_nuevas(args.db, {p["cod_nota"] for p in revision["publicaciones"]})
         resultado["reconstruir"] = resultado["reconstruir"] or len(cliente.bajados) > antes or bool(nuevas)

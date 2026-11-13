@@ -41,30 +41,6 @@ class FuenteRmf:
         return f"Resolución Miscelánea Fiscal para {self.anio}"
 
 
-# Los nombres de archivo no siguen un patrón: salen del HTML de cada año (docs/fuentes.md, ficha 5).
-# shortcut: lista fija; la detección de modificaciones nuevas llega con RF-06 (iteración 4).
-FUENTES_RMF = [
-    # La "compilada" de la Segunda de 2024 (171 MB) no es la RMF: 663 páginas de otro texto, sin estilos.
-    FuenteRmf(2024, date(2023, 12, 29), SAT + "documentos2024/rmf/rmf/RMF_2024-29122023.pdf", (
-        SAT + "documentos2024/rmf/compiladas/Compilado_Primera_Modificacion_de_la-Resolucion_Miscelanea_Fiscal_para_2024.pdf",
-        None,
-        SAT + "documentos2024/rmf/compiladas/Compilado_Tercera_Modificacion_de_la-Resolución_Miscelanea_Fiscal_para_2024-12122024.pdf"),
-        {1: SAT + "documentos2024/rmf/rmf/2aRMRMF_2024_DOF_11102024.pdf"}),
-    FuenteRmf(2025, date(2024, 12, 30), SAT + "documentos2025/rmf/rmf/RMF_2025-30122024.pdf", tuple(SAT + "documentos2025/rmf/compiladas/" + c for c in (
-        "Compilado_Primera_Modificacion_a_la-Resolucion_Miscelanea_Fiscal_para_2025-22012025.pdf",
-        "Compilado_Segunda_Modificacion_RMF_2025-07042025.pdf",
-        "Compilado_3aRM_RMF_2025_13052025.pdf",
-        "Compilado_Cuarta_Modificacion_a_la_Resolucion_Miscelanea_Fiscal_2025_09072025.pdf",
-        "Compilado_Quinta_Modificacion_a_la-Resolución_Miscelanea_Fiscal_para_2025-22102025.pdf",
-        "Compilado_6a_Modificacion_RMF2025-17122025.pdf"))),
-    # La compilada de 2026 omite el transitorio de la Segunda: sale de su publicación.
-    FuenteRmf(2026, date(2025, 12, 28), SAT + "documentos2026/rmf/rmf/RMF_2026-DOF-28122025.pdf", tuple(SAT + "documentos2026/rmf/compiladas/" + c for c in (
-        "Compilado_Primera_Modificacion_a_la-Resolucion_Miscelanea_Fiscal_para_2026.pdf",
-        "Compilado_Segunda_Modificacion_a_la-Resolucion_Miscelanea_Fiscal_para_2026.pdf",
-        "Compilado_Tercera_Modificacion_a_la-Resolucion_Miscelanea_Fiscal_para_2026.pdf")),
-        {1: SAT + "documentos2026/rmf/rmf/2aRM_RMF2026_01102026.pdf"}),
-]
-
 REGLA = re.compile(r"^(\d{1,2}(?:\.\d{1,3}){1,3})\.$")  # "1.9.", "3.13.2.", "2.7.1.21."
 # Ruido de página: el aviso de las compiladas y el encabezado del DOF en el original.
 AVISO = "NOTA: Este documento constituye una compilación"

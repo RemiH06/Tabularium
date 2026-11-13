@@ -125,7 +125,7 @@ def _url(con: sqlite3.Connection, d: sqlite3.Row, documentos: list[str]) -> str 
 def pendientes(con: sqlite3.Connection, desde: str, hasta: str, documento: str | None = None) -> list[dict]:
     """Publicaciones detectadas en el DOF que tocan un documento del corpus sin versiones de ese
     día en ese documento ni decreto registrado para él: el texto todavía no llega (LeyesBiblio o el
-    SAT tardan) o falta su fuente en `rmf.FUENTES_RMF` o `anexos.FUENTES_ANEXOS`."""
+    SAT tardan; una modificación de la RMF o de un anexo entra cuando el minisitio lista su compilada)."""
     salida = []
     for p in con.execute("SELECT * FROM publicaciones WHERE publicado_dof BETWEEN ? AND ? ORDER BY publicado_dof",
                          (desde, hasta)):

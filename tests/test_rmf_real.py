@@ -5,9 +5,10 @@ from contextlib import closing
 
 import pytest
 
-from tabularium import almacen, construir, rmf
+from tabularium import almacen, construir, minisitio, rmf
 
-pytestmark = pytest.mark.skipif(not all(construir.ruta_cache(f.original).exists() for f in rmf.FUENTES_RMF),
+RMF = minisitio.fuentes()[0]  # de las páginas del minisitio en la caché
+pytestmark = pytest.mark.skipif(not RMF or not all(construir.ruta_cache(f.original).exists() for f in RMF),
                                 reason="sin los PDF de la RMF en la caché")
 
 
@@ -40,7 +41,7 @@ def test_rf03_muestra_igual_al_pdf(db):
     """20 reglas de la versión base de 2026 contra el texto plano del PDF original, extraído sin
     estilos ni segmentación (una extracción independiente)."""
     pymupdf = pytest.importorskip("pymupdf")
-    f = rmf.FUENTES_RMF[2]
+    f = RMF[2]
     with pymupdf.open(construir.ruta_cache(f.original)) as pdf:
         plano_pdf = construir._plano("\n".join(l for p in pdf for l in p.get_text().split("\n")
                                                if not rmf.ENCABEZADO_DOF.match(l.strip())))
@@ -64,7 +65,7 @@ def test_rf04_regla_por_modificacion(db):
         # 2024: tres versiones; la de la Segunda no tiene compilada y sale de su publicación en el DOF.
         v = almacen.versiones(con, "RMF2024", "2.1.6")
         assert [x["cita"]["vigente_desde"] for x in v] == ["2024-01-01", "2024-10-12", "2024-12-13"]
-        assert v[1]["cita"]["fuente_url"] == rmf.FUENTES_RMF[0].publicadas[1]
+        assert v[1]["cita"]["fuente_url"] == RMF[0].publicadas[1]
         assert "transmisión del Poder Ejecutivo" in v[1]["texto"] and not v[1]["texto"].startswith("“")
         assert v[-1]["cita"]["vigente_hasta"] == "2025-01-01"
 

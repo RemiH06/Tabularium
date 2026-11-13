@@ -179,7 +179,7 @@ del Reglamento del CFF, los contribuyentes personas físicas que reanuden activi
 | 2025 | DOF 30-12-2024 | 6 (falta la compilada de la 5a) | 1,150 | 1,173 | 128 | 2.4 millones |
 | 2026 | DOF 28-12-2025 | 3 publicadas; 4a y 5a en versión anticipada | 1,184 | 1,191 | 38 | 2.5 millones |
 
-**Cómo detectar cambios:** el DOF avisa (ficha 1: el título dice "Resolución de Modificaciones a la Resolución Miscelánea Fiscal"). Después se relee el HTML del año y se compara la lista de enlaces; la página y cada PDF traen `Last-Modified`.
+**Cómo detectar cambios:** el DOF avisa (ficha 1: el título dice "Resolución de Modificaciones a la Resolución Miscelánea Fiscal"). Después se relee el HTML del año y se compara la lista de enlaces; la página y cada PDF traen `Last-Modified`. Desde el 2026-11-12 lo hace `minisitio.py`: `tabularium descargar` baja la página del año en curso y la del anterior (en diciembre, también la del siguiente) y las fuentes de la RMF y de los anexos 8 y 29 salen del texto de cada enlace, que trae el ordinal y la fecha: "Compilado 3a. RM RMF 2026 (publicado el 02 de octubre de 2026)".
 
 **Hallazgos:**
 
@@ -191,6 +191,9 @@ del Reglamento del CFF, los contribuyentes personas físicas que reanuden activi
 - En la compilada de 2024 el título de una regla sale pegado a las referencias de la anterior ("CFF 27, RCFF 28Cédula de identificación fiscal...").
 - El Anexo 20 de CFDI no está aquí: el "Anexo 20" que lista el minisitio es el de las Reglas de Comercio Exterior. El anexo de CFDI que sí se publica cada año es el 29 ("Disposiciones complementarias para los PCCFDI y los CFDI", 76 mil caracteres en 2026).
 - Anexo 5 (cantidades del CFF, 46 mil caracteres) y Anexo 8 (tarifas del ISR, 40 mil) se publican con la RMF.
+- **El texto del enlace puede mentir** (2026-11-12): en la página de 2024 la compilada de la 1a modificación del Anexo 30 dice "Compilado 1a. Modificación Anexo 29 RMF 2024". `minisitio.py` pide que el nombre del archivo también diga el número del anexo, y dos enlaces distintos para la misma pieza fallan en voz alta.
+- La página es UTF-8, sin `charset` declarado.
+- Una modificación sale primero en versiones anticipadas (`anticipadas/`), luego publicada (`rmf/rmf/`) y días o semanas después compilada. Al 2026-11-12, la Cuarta RMRMF 2026 (DOF 30-10-2026) solo tiene sus anticipadas, y la Segunda modificación del Anexo 29 (DOF 06-11-2026) no aparece.
 
 ## 6. SAT, portal técnico del Anexo 20
 
