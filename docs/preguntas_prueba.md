@@ -110,6 +110,14 @@ Las tarifas que la LISR trae como imagen (R-03). Cada año es un documento propi
 | 53 | conceptual | ¿Cuál es la tarifa anual del ISR de personas físicas en 2026? | RMF2026-A8 | sección C.II | 2026-04-30 | 2025-12-28 |
 | 54 | temporal | ¿Qué tarifa mensual se usaba en 2025 para retener ISR por salarios? | RMF2025-A8 | sección B.V | 2025-06-01 | 2024-12-30 |
 
+### Siglas (iteración 5, 2026-11-13)
+
+Salió al probar `preguntar`: con la sigla, `buscar` no traía el art. 1o de la LIVA entre los cinco primeros, y la respuesta citaba el 2o.-A.
+
+| # | Tipo | Pregunta | Documento | Unidad esperada | Fecha | Versión esperada (DOF) |
+|---|---|---|---|---|---|---|
+| 55 | conceptual | ¿Cuál es la tasa general del IVA? | LIVA | art. 1o | 2026-11-10 | 2019-12-09 |
+
 Lo que se quitó al adaptarlas: "carta invitación" (43) no aparece en el CFF; "Impuesto sobre Sociedades" (44) es de España; la Seguridad Social (48) es el IMSS, fuera de la v1; los pasos mercantiles de la sociedad (52) son de la Ley General de Sociedades Mercantiles, fuera de la v1.
 
 ### Casos de callar (no cuentan para el recall)

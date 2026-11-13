@@ -24,7 +24,7 @@ def test_referencias_exactas():
 
 def test_conjunto_de_evaluacion():
     preguntas, callar = evaluacion.leer()
-    assert len(preguntas) == 54 and len(callar) == 18
+    assert len(preguntas) == 55 and len(callar) == 18
     p = {q.n: q for q in preguntas}
     assert p["39"].claves == {"iareceptor"} and p["53"].documento == "RMF2026-A8" and p["53"].claves == {"cii"}
     assert p["41"].claves == {"113e", "100"}
@@ -34,3 +34,9 @@ def test_conjunto_de_evaluacion():
     assert not evaluacion.version_correcta(hit, p["22"])  # otra reforma
     hit["cita"]["publicado_dof"] = "2023-12-29"
     assert evaluacion.version_correcta(hit, p["22"])
+
+
+def test_expandir_siglas():
+    assert lexico.expandir("¿Cuál es la tasa general del IVA?") == "¿Cuál es la tasa general del IVA? (impuesto valor agregado)"
+    assert lexico.expandir("tasa del 16%") == "tasa del 16%"
+    assert {"impuest", "valor", "agreg", "iva"} <= set(lexico.consulta("tasa del IVA"))

@@ -365,8 +365,11 @@ def buscar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, lim
     if not terminos and not salida:
         raise ValueError("la consulta no tiene palabras que buscar")
     puntos: dict[int, float] = {}
+    # Con siglas, el embedding va dos veces, con la sigla sola y desarrollada, a medio peso cada uno:
+    # "IVA" solo no encuentra el art. 1o de la LIVA, y "CFDI" desarrollado arrastra al art. 29 del CFF.
+    vectores = list(dict.fromkeys((consulta, lexico.expandir(consulta))))
     for peso, lista in ((1.0, _por_bm25(con, consulta, terminos, f) if terminos else []),
-                        (PESO_VECTORES, _por_vector(con, consulta, f))):
+                        *((PESO_VECTORES / len(vectores), _por_vector(con, v, f)) for v in vectores)):
         for rango, i in enumerate(lista, 1):
             puntos[i] = puntos.get(i, 0.0) + peso / (RRF + rango)
     _propagar(con, puntos, f)

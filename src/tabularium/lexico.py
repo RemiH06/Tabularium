@@ -31,6 +31,7 @@ SIGLAS = {
     "cfdi": "comprobante fiscal digital internet",
     "rfc": "registro federal contribuyentes",
     "ieps": "impuesto especial produccion servicios",
+    "iva": "impuesto valor agregado",
     "resico": "regimen simplificado confianza",
     "uma": "unidad medida actualizacion",
 }
@@ -61,12 +62,17 @@ def raices(texto: str) -> list[str]:
     return [_raiz(p) for p in re.findall(r"\w+", _plano(texto)) if p not in VACIAS]
 
 
+def expandir(texto: str) -> str:
+    """La consulta con sus siglas desarrolladas al final: "tasa del IVA" -> "tasa del IVA (impuesto
+    valor agregado)". También para el embedding, que con la sigla sola no encuentra el artículo."""
+    extra = ", ".join(dict.fromkeys(SIGLAS[p] for p in re.findall(r"\w+", _plano(texto)) if p in SIGLAS))
+    return f"{texto} ({extra})" if extra else texto
+
+
 def consulta(texto: str) -> list[str]:
     """Raíces de la consulta, con las siglas expandidas y sin repetir. Sin años: el momento lo
     fija `fecha`, y "2025" en la consulta solo atrae transitorios."""
-    palabras = re.findall(r"\w+", _plano(texto))
-    extra = " ".join(SIGLAS[p] for p in palabras if p in SIGLAS)
-    return [r for r in dict.fromkeys(raices(texto + " " + extra)) if not re.fullmatch(r"(?:19|20)\d\d", r)]
+    return [r for r in dict.fromkeys(raices(expandir(texto))) if not re.fullmatch(r"(?:19|20)\d\d", r)]
 
 
 def mencionados(texto: str) -> set[str]:
