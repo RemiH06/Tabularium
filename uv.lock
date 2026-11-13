@@ -1271,7 +1271,9 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "pymupdf" },
     { name = "snowballstemmer" },
+    { name = "starlette" },
     { name = "tokenizers" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -1289,7 +1291,9 @@ requires-dist = [
     { name = "onnxruntime", specifier = ">=1.31.1" },
     { name = "pymupdf", specifier = ">=2.1" },
     { name = "snowballstemmer", specifier = ">=3.1.1" },
+    { name = "starlette", specifier = ">=1.10" },
     { name = "tokenizers", specifier = ">=0.23.3" },
+    { name = "uvicorn", specifier = ">=0.54" },
 ]
 
 [package.metadata.requires-dev]

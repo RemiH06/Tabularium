@@ -13,6 +13,7 @@ El trabajo diario corre en la Raspberry Pi 5 (`frambuesa-yi`, usuario `sherry`) 
 | CLI `baker` | `uv tool install "bakers @ git+https://github.com/RemiH06/Bakery.git#subdirectory=bakers"` (Python 3.13 del sistema) |
 | Credenciales del gateway | `~/.config/tabularium/env` (`BAKERS_URL`, `BAKERS_API_KEY`), permisos 600, fuera del repo |
 | Unidades | `~/.config/systemd/user/tabularium-diario.{service,timer}`, copias de esta carpeta |
+| Big Chungus (conectado el 2026-11-13, sin montar) | No se usa: su partición es un grupo de almacenamiento de Windows (Storage Spaces), que Linux no lee, y tiene respaldos de Remi. No formatear. Ver `plan.md`, sección 10 |
 | Linger | `sudo loginctl enable-linger sherry`: el timer corre sin sesión abierta |
 | IPv4 primero | `/etc/gai.conf`: `precedence ::ffff:0:0/96  100`. El IPv6 de la red de casa no sale a internet y cada petición esperaba 240 s a que fallara |
 

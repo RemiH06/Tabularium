@@ -1,4 +1,4 @@
-"""Línea de comandos: `tabularium descargar`, `revisar`, `construir`, `glosar`, `evaluar`, `novellae` y `servir`."""
+"""Línea de comandos: `tabularium descargar`, `revisar`, `construir`, `glosar`, `evaluar`, `novellae`, `servir` y `pagina`."""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +35,7 @@ def main() -> None:
     e.add_argument("-k", type=int, default=5)
     e.add_argument("--json", action="store_true", help="salida completa en JSON")
     sub.add_parser("servir", help="levanta el servidor MCP (TABULARIUM_HOST, TABULARIUM_PUERTO)")
+    sub.add_parser("pagina", help="levanta la página pública de Novellae (TABULARIUM_PAGINA_HOST, TABULARIUM_PAGINA_PUERTO)")
     pe = sub.add_parser("pendientes", help="exporta los fragmentos sin vector en la caché, para la GPU")
     pe.add_argument("--db", type=Path)
     pe.add_argument("salida", type=Path, help="archivo .jsonl ({hash, texto} por línea)")
@@ -117,6 +118,9 @@ def main() -> None:
         with closing(almacen.abrir(args.db or ruta_db())) as con:
             r = evaluar(con, k=args.k)
         print(json.dumps(r, ensure_ascii=False, indent=2) if args.json else reporte(r))
+    elif args.orden == "pagina":
+        from .pagina import servir
+        servir()
     else:
         from .servidor import servir
         servir()
