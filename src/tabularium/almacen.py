@@ -18,12 +18,13 @@ from . import lexico
 CORTE = date(2024, 1, 1)  # inicio del corpus: la línea base es el texto vigente a esta fecha
 EXPEDICION = "Expedición: "  # prefijo del título del decreto que expide una ley
 RESOLUCION = "Resolución Miscelánea Fiscal"  # título de la RMF de cada año; el de sus modificaciones lo contiene
+PORTAL = "SAT-"  # prefijo del id de lo que el SAT publica solo en su portal (guía de llenado del Anexo 20)
 
 ESQUEMA = """
 CREATE TABLE documentos (
     id TEXT PRIMARY KEY,
     nombre TEXT NOT NULL,
-    tipo TEXT NOT NULL CHECK (tipo IN ('ley', 'resolucion', 'decreto'))
+    tipo TEXT NOT NULL CHECK (tipo IN ('ley', 'resolucion', 'anexo', 'decreto'))
 );
 CREATE TABLE decretos (
     id TEXT PRIMARY KEY REFERENCES documentos(id),
@@ -36,7 +37,7 @@ CREATE TABLE versiones (
     documento TEXT NOT NULL REFERENCES documentos(id),
     unidad TEXT NOT NULL,
     clave TEXT NOT NULL,
-    tipo TEXT NOT NULL CHECK (tipo IN ('articulo', 'regla', 'transitorio')),
+    tipo TEXT NOT NULL CHECK (tipo IN ('articulo', 'regla', 'seccion', 'transitorio')),
     jerarquia TEXT NOT NULL DEFAULT '',
     vigente_desde TEXT NOT NULL,
     vigente_hasta TEXT,
@@ -129,12 +130,15 @@ def cita(fila: sqlite3.Row) -> dict:
     desde = (f"vigente al {CORTE.isoformat()} (inicio del corpus)" if base
              else f"vigente desde {fila['vigente_desde']}")
     hasta = f" hasta {fila['vigente_hasta']}" if fila["vigente_hasta"] else ""
-    prefijo = {"articulo": "art. ", "regla": "regla "}.get(fila["tipo"], "")
+    prefijo = {"articulo": "art. ", "regla": "regla ", "seccion": "sección "}.get(fila["tipo"], "")
     if base and (fila["titulo"] or "").startswith(EXPEDICION):
         # Sin nota no hay fecha de última reforma: LeyesBiblio solo anota las del CFF desde 2021.
         origen = f"sin nota de reforma en la fuente; ley publicada en el DOF el {fila['publicado_dof']}"
+    elif fila["decreto"].startswith(PORTAL):
+        origen = f"{fila['titulo']}, versión del Portal del SAT del {fila['publicado_dof']} (no se publica en el DOF)"
     elif RESOLUCION in (fila["titulo"] or ""):
-        origen = f"{fila['titulo']}, publicada en el DOF el {fila['publicado_dof']}"
+        genero = "o" if fila["titulo"].startswith("Anexo") else "a"  # "Anexo 8 ..., publicado"; "Primera Modificación ..., publicada"
+        origen = f"{fila['titulo']}, publicad{genero} en el DOF el {fila['publicado_dof']}"
     else:
         origen = f"{'última reforma publicada' if base else 'decreto publicado'} en el DOF el {fila['publicado_dof']}"
     return {
@@ -155,18 +159,31 @@ def _salida(fila: sqlite3.Row, **extra) -> dict:
 
 
 def documento_de(documento: str, fecha: str) -> str:
-    """"RMF" es la del año de la fecha: cada RMF rige del 1 de enero al 31 de diciembre."""
+    """"RMF" es la del año de la fecha: cada RMF rige del 1 de enero al 31 de diciembre. Lo mismo
+    con sus anexos: "Anexo 8", "A8" o "RMF-A8" -> "RMF2026-A8"."""
     d = re.sub(r"\s+", "", documento).upper()
+    if m := re.fullmatch(r"(?:RMF(\d{4})?-?)?(?:ANEXO|A)(\d+(?:-[A-Z])?)", d):
+        return f"RMF{m.group(1) or fecha[:4]}-A{m.group(2)}"
     return f"RMF{fecha[:4]}" if d == "RMF" else d
 
 
 def articulo(con: sqlite3.Connection, documento: str, unidad: str, fecha: str | None = None) -> dict:
     f = _fecha(fecha)
-    documento = documento_de(documento, f)
-    fila = con.execute(
-        f"SELECT {_COLUMNAS}, v.id, v.texto, v.notas FROM {_JOIN} "
-        f"WHERE v.documento = :doc AND v.clave = :clave AND {_VIGENTE}",
-        {"doc": documento, "clave": clave(unidad), "fecha": f}).fetchone()
+    pedido, documento = documento, documento_de(documento, f)
+    candidatos = [documento]
+    if "-A" in documento and not re.search(r"\d{4}", pedido):
+        # Un anexo sin año: el del año anterior rige hasta que se publica el nuevo (`anexos.vigor`), y
+        # el 20 es el de la RMF 2022, prorrogado cada año. La vigencia escoge entre los de todos los años.
+        candidatos += [d for (d,) in con.execute("SELECT id FROM documentos WHERE id GLOB ? ORDER BY id DESC",
+                                                 ("RMF[0-9][0-9][0-9][0-9]" + documento[7:],)) if d != documento]
+    fila = None
+    for documento in candidatos:
+        fila = con.execute(
+            f"SELECT {_COLUMNAS}, v.id, v.texto, v.notas FROM {_JOIN} "
+            f"WHERE v.documento = :doc AND v.clave = :clave AND {_VIGENTE}",
+            {"doc": documento, "clave": clave(unidad), "fecha": f}).fetchone()
+        if fila:
+            break
     if fila is None:
         raise LookupError(f"no hay {unidad!r} de {documento!r} vigente el {f}")
     return _salida(fila, fecha_consulta=f, texto=fila["texto"], notas=fila["notas"],
@@ -176,7 +193,7 @@ def articulo(con: sqlite3.Connection, documento: str, unidad: str, fecha: str | 
 def versiones(con: sqlite3.Connection, documento: str, unidad: str) -> list[dict]:
     filas = con.execute(
         f"SELECT {_COLUMNAS}, v.texto FROM {_JOIN} WHERE v.documento = ? AND v.clave = ? ORDER BY v.vigente_desde",
-        (re.sub(r"\s+", "", documento).upper(), clave(unidad))).fetchall()
+        (documento_de(documento, date.today().isoformat()), clave(unidad))).fetchall()
     if not filas:
         raise LookupError(f"no hay {unidad!r} en {documento!r}")
     return [_salida(f, texto=f["texto"]) for f in filas]

@@ -24,8 +24,9 @@ def test_referencias_exactas():
 
 def test_conjunto_de_evaluacion():
     preguntas, callar = evaluacion.leer()
-    assert len(preguntas) == 52 and len(callar) == 18
+    assert len(preguntas) == 54 and len(callar) == 18
     p = {q.n: q for q in preguntas}
+    assert p["39"].claves == {"iareceptor"} and p["53"].documento == "RMF2026-A8" and p["53"].claves == {"cii"}
     assert p["41"].claves == {"113e", "100"}
     assert p["19"].claves == {"17hbis"} and p["24"].version == "sin nota" and p["22"].version == "2023-12-29"
     hit = {"titulo_decreto": "x", "cita": {"vigente_desde": "2024-01-01", "vigente_hasta": None,

@@ -4,7 +4,7 @@ Lee las preguntas de las tablas del documento (una sola fuente) y reporta recall
 - contra la unidad: la unidad esperada sale entre los k primeros;
 - contra la versión: además, la versión que salió es la vigente en la fecha de la pregunta y cita
   la reforma esperada (columna "Versión esperada (DOF)", cuando existe). El umbral va contra esta.
-Las preguntas de documentos que aún no están en la base (RMF, anexos) se cuentan como pendientes.
+Las preguntas de documentos que aún no están en la base se cuentan como pendientes.
 Los casos de callar se reportan aparte con el puntaje del primer resultado.
 """
 from __future__ import annotations
@@ -57,7 +57,7 @@ def leer(ruta: Path = PREGUNTAS) -> tuple[list[Pregunta], list[dict[str, str]]]:
                 v = f.get("Versión esperada (DOF)")
                 version = "sin nota" if v and v.startswith("sin nota") else (
                     m.group(0) if v and (m := re.match(r"\d{4}-\d{2}-\d{2}", v)) else None)
-                claves = {almacen.clave(u) for u in re.findall(r"(?:art\.|regla)\s*([^(),]+)", f["Unidad esperada"])}
+                claves = {almacen.clave(u) for u in re.findall(r"(?:art\.|regla|sección)\s*([^(),]+)", f["Unidad esperada"])}
                 documento = re.sub(r"^RMF\s+(\d{4})$", r"RMF\1", f["Documento"])  # "RMF 2026" -> "RMF2026"
                 preguntas.append(Pregunta(f["#"], f["Tipo"], f["Pregunta"], documento, claves, f["Fecha"], version))
     return preguntas, callar
@@ -76,7 +76,7 @@ def evaluar(con: sqlite3.Connection, ruta: Path = PREGUNTAS, k: int = 5, buscado
     """`buscador(con, consulta, fecha, limite)`: por defecto `almacen.buscar`; los experimentos pasan otro."""
     buscador = buscador or almacen.buscar
     preguntas, callar = leer(ruta)
-    en_base = {r[0] for r in con.execute("SELECT id FROM documentos WHERE tipo IN ('ley', 'resolucion')")}
+    en_base = {r[0] for r in con.execute("SELECT id FROM documentos WHERE tipo IN ('ley', 'resolucion', 'anexo')")}
     filas, pendientes, tiempos = [], [], []
     for p in preguntas:
         if p.documento not in en_base:

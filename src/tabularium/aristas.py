@@ -54,7 +54,8 @@ def _numeros(lista: str) -> list[str]:
 def remisiones(texto: str, documento: str) -> set[tuple[str, str]]:
     """(documento, clave) de las unidades del corpus que nombra `texto`, escrito en `documento`
     ("LISR", "RMF2026"...). Un artículo sin ley nombrada es de la misma ley si `documento` es ley."""
-    es_rmf = documento.startswith("RMF")
+    es_rmf = documento.startswith("RMF")  # la RMF del año o uno de sus anexos ("RMF2026-A29")
+    rmf = documento.split("-")[0]
     salida: set[tuple[str, str]] = set()
     for m in LISTA_ARTICULOS.finditer(texto):
         lista, resto = m.group(1), m.group(2)
@@ -74,7 +75,7 @@ def remisiones(texto: str, documento: str) -> set[tuple[str, str]]:
             salida |= {(destino, clave(n)) for n in _numeros(lista)}
     if es_rmf:
         for m in LISTA_REGLAS.finditer(texto):
-            salida |= {(documento, clave(n)) for n in re.findall(REGLA_NUM, m.group(1))}
+            salida |= {(rmf, clave(n)) for n in re.findall(REGLA_NUM, m.group(1))}
     return salida
 
 
@@ -82,7 +83,7 @@ def enlazar(con) -> dict[str, int]:
     """Agrega las REMITE_A del texto de cada artículo y regla (las de la línea de referencias de las
     reglas ya las puso la construcción) y quita las que apuntan fuera del corpus o a sí mismas."""
     filas = con.execute("SELECT v.id, v.documento, v.clave, v.texto FROM versiones v JOIN documentos d "
-                        "ON d.id = v.documento WHERE d.tipo IN ('ley', 'resolucion')").fetchall()
+                        "ON d.id = v.documento WHERE d.tipo IN ('ley', 'resolucion', 'anexo')").fetchall()
     con.executemany("INSERT OR IGNORE INTO aristas VALUES (?, 'REMITE_A', ?, ?)",
                     [(id_, d, c) for id_, doc, propia, texto in filas for d, c in remisiones(texto, doc)
                      if (d, c) != (doc, propia)])

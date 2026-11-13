@@ -101,3 +101,50 @@ def test_rf07_rf08_grafo(db):
         r = almacen.buscar(con, "¿Qué requisitos debía reunir un CFDI en 2025?", "2025-06-01")
         assert ("CFF", "29-A") in {(x["documento"], x["unidad"]) for x in r}
         assert all("relacionadas" in x for x in r)
+
+
+def test_anexo_8_tarifas(db):
+    """Las tarifas del ISR que la LISR trae como imagen (R-03) están en el Anexo 8 de cada año, y el
+    artículo las ve por el grafo."""
+    with closing(almacen.abrir(db)) as con:
+        n = dict(con.execute("SELECT documento, count(DISTINCT unidad) FROM versiones WHERE documento LIKE '%-A8' GROUP BY 1"))
+        assert n == {"RMF2024-A8": 41, "RMF2025-A8": 31, "RMF2026-A8": 31}  # 2024 trae las del subsidio para el empleo
+        tarifa = almacen.articulo(con, "Anexo 8", "C.II", "2026-04-30")
+        assert tarifa["texto"].splitlines()[2] == "0.01 | 10,135.11 | 0 | 1.92"
+        assert tarifa["texto"].splitlines()[-1] == "5,107,703.93 | En adelante | 1,601,862.46 | 35.00"
+        assert tarifa["cita"]["texto"].startswith("RMF2026-A8, sección C.II, vigente desde 2026-01-01 hasta 2027-01-01; "
+                                                  "Anexo 8 de la Resolución Miscelánea Fiscal para 2026, publicado")
+        art = almacen.articulo(con, "LISR", "152", "2026-04-30")
+        assert {"relacion": "REGLAMENTADA_POR", "documento": "RMF2026-A8", "unidad": "C.II"} in art["relacionadas"]
+        # 2025 no actualizó la tarifa anual; 2026 sí.
+        assert almacen.articulo(con, "Anexo 8", "C.II", "2025-04-30")["texto"].splitlines()[2] == "0.01 | 8,952.49 | 0.00 | 1.92"
+
+
+def test_anexo_29_versiones(db):
+    """Cada año rige desde el día siguiente a su publicación y el anterior sigue hasta entonces
+    (RMF 2026, Transitorio Segundo); cada modificación da versión nueva solo a lo que marca."""
+    with closing(almacen.abrir(db)) as con:
+        v = almacen.versiones(con, "RMF2026-A29", "VI.1")
+        assert [(x["cita"]["vigente_desde"], x["cita"]["vigente_hasta"]) for x in v] == \
+            [("2026-01-10", "2026-07-18"), ("2026-07-18", "2027-01-01")]
+        assert v[1]["cita"]["decreto_dof"] == "DOF-2026-07-17-RMF2026-A29"
+        assert "Atributo: “TipoDeComprobante”" in v[1]["texto"] and "Atributo: “TipoDeComprobante”" not in v[0]["texto"]
+        assert "- Adicionado" not in v[1]["texto"]  # las marcas no son texto de la norma
+        assert len(almacen.versiones(con, "RMF2026-A29", "VI.2")) == 1
+        assert almacen.articulo(con, "Anexo 29", "VI.1", "2026-01-05")["documento"] == "RMF2025-A29"
+        assert [x["cita"]["vigente_desde"] for x in almacen.versiones(con, "RMF2024-A29", "III.2")] == \
+            ["2024-01-23", "2024-06-05", "2024-12-13"]
+
+
+def test_anexo_20(db):
+    """Preguntas 39 y 40: el estándar del CFDI es el Anexo 20 de la RMF 2022, prorrogado cada año; la
+    guía de llenado sale del Portal del SAT y su cita lo dice."""
+    with closing(almacen.abrir(db)) as con:
+        receptor = almacen.articulo(con, "Anexo 20", "I.A Receptor", "2026-11-10")
+        assert receptor["documento"] == "RMF2022-A20"
+        assert "DomicilioFiscalReceptor" in receptor["texto"] and "[0-9]{5}" in receptor["texto"]
+        assert receptor["cita"]["vigente_desde"] == "2022-01-14" and receptor["cita"]["vigente_hasta"] is None
+        guia = almacen.articulo(con, "GUIA-A20", "I Comprobante", "2026-11-10")
+        assert "FormaPago" in guia["texto"]
+        assert guia["cita"]["texto"].endswith("versión del Portal del SAT del 2026-01-17 (no se publica en el DOF)")
+        assert "sha256" in guia["notas"]

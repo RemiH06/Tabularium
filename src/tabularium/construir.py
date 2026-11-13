@@ -19,6 +19,8 @@ from . import almacen, aristas
 from .almacen import CORTE
 from .doc import texto_doc
 from .ley import Decreto, Ley, Unidad, fecha_es, segmentar
+from .anexos import FUENTES_ANEXOS, FuenteAnexo
+from .anexos import vigor as vigor_anexo
 from .rmf import FUENTES_RMF, FuenteRmf
 from .vigencias import MISMO_DIA, PUBLICACIONES, deshacer, intermedia
 
@@ -298,6 +300,84 @@ class Construccion:
                 "ruido": ruido, "marcadas_sin_cambio": sin_cambio, "nuevas_sin_marca": nuevas_sin_marca}
 
 
+    def anexo(self, f: FuenteAnexo, fin: date | None) -> dict:
+        """Un anexo: versión base de cada sección desde la publicación en el DOF y una versión nueva
+        en cada modificación cuya marca trae la sección en la compilada correspondiente, como en la
+        RMF. `fin`: cuando empieza a regir el del año siguiente; None si se prorroga (el 20)."""
+        from . import anexos
+        from .rmf import ORDINALES
+        desde = anexos.vigor(f.anio, f.publicado)
+        self.documento(f.documento, f.nombre, "anexo")
+        id_base = self.decreto(f.publicado, f.nombre, desde, ley=f.documento)
+        base, _ = anexos.leer(f.numero, anexos.lineas_pdf(_en_cache(f.url)))
+        historia = {s.id: [(desde, s, id_base, f.url)] for s in base}
+        publicaciones = {p for p, _ in f.modificaciones}
+        ruido, nuevas_sin_marca = [], []
+        for k, (publicado, url) in enumerate(f.modificaciones):
+            v = anexos.vigor(f.anio, publicado)
+            id_mod = self.decreto(publicado, f"{ORDINALES[k]} Modificación al {f.nombre}", v, ley=f.documento)
+            secciones, marcas = anexos.leer(f.numero, anexos.lineas_pdf(_en_cache(url)))
+            if extrañas := {x for m in marcas.values() for x in m} - publicaciones:
+                raise ValueError(f"{f.documento}: marcas de modificaciones que no están en la fuente: {sorted(extrañas)}")
+            for s in secciones:
+                previo = historia.get(s.id)
+                if publicado in marcas.get(s.id, ()) or previo is None:
+                    if previo is None and publicado not in marcas.get(s.id, ()):
+                        nuevas_sin_marca.append(f"{s.id}@{k + 1}")
+                    historia.setdefault(s.id, []).append((v, s, id_mod, url))
+                elif _plano(previo[-1][1].texto) != _plano(s.texto):
+                    ruido.append(f"{s.id}@{k + 1}")  # sin marca: se conserva el texto anterior
+        for id_, versiones in historia.items():
+            for j, (d, s, decreto, url) in enumerate(versiones):
+                hasta = versiones[j + 1][0] if j + 1 < len(versiones) else fin
+                if hasta is not None and hasta <= d:
+                    continue
+                version = self.version(f.documento, Unidad(id_, "seccion", jerarquia=s.jerarquia), d, decreto, url,
+                                       hasta, s.texto, "")
+                if f.numero == 8:  # cada tarifa reglamenta los artículos de ley que nombra su título
+                    self.con.executemany("INSERT OR IGNORE INTO aristas VALUES (?, 'REGLAMENTA', ?, ?)",
+                                         [(version, doc, cl) for doc, cl in aristas.remisiones(s.lineas[0], f.documento)
+                                          if not doc.startswith("RMF")])
+        return {"documento": f.documento, "secciones": len(historia), "modificaciones": len(f.modificaciones),
+                "vigente_desde": desde.isoformat(), "vigente_hasta": fin.isoformat() if fin else None,
+                "reformadas": sorted(i for i, v in historia.items() if len(v) > 1),
+                "ruido": ruido, "nuevas_sin_marca": nuevas_sin_marca}
+
+
+    def anexo_20(self) -> list[dict]:
+        """Estándar del CFDI 4.0 (Anexo 20 de la RMF 2022, prorrogado cada año) y su guía de
+        llenado. La guía no sale en el DOF: su fecha es la del Portal del SAT (Last-Modified) y su
+        versión se identifica por el hash del PDF (R-09). Sin los PDF en la caché se omiten: el
+        portal solo responde por HTTP y se bajan a mano hasta pasar por `ciberseguridad`."""
+        import hashlib
+        import json
+        from email.utils import parsedate_to_datetime
+
+        from . import anexos
+        faltan = [u for u in (anexos.ANEXO_20.url, anexos.GUIA_20) if not ruta_cache(u).exists()]
+        if faltan:
+            return [{"documento": "RMF2022-A20", "omitido": f"faltan en la caché, se bajan a mano (R-09): {faltan}"}]
+        resumen = [self.anexo(anexos.ANEXO_20, None)]
+        nodos = {u.split(" ", 1)[1].split(" (")[0] for (u,) in self.con.execute(
+            "SELECT unidad FROM versiones WHERE documento = ? AND unidad LIKE '% %'", (anexos.ANEXO_20.documento,))}
+        ruta = ruta_cache(anexos.GUIA_20)
+        meta = json.loads(ruta.with_name(ruta.name + ".meta.json").read_text(encoding="utf-8"))
+        publicada = parsedate_to_datetime(meta["last_modified"]).date()
+        huella = hashlib.sha256(ruta.read_bytes()).hexdigest()
+        titulo = "Guía de llenado de los comprobantes fiscales digitales por Internet (Anexo 20)"
+        id_ = f"{almacen.PORTAL}{publicada.isoformat()}-GUIA-A20"
+        self.documento("GUIA-A20", titulo, "anexo")
+        self.documento(id_, titulo, "decreto")
+        self.con.execute("INSERT OR IGNORE INTO decretos VALUES (?, ?, ?, ?)",
+                         (id_, publicada.isoformat(), titulo, publicada.isoformat()))
+        secciones = anexos.guia(anexos.lineas_pdf(ruta), nodos)
+        for s in secciones:
+            self.version("GUIA-A20", Unidad(s.id, "seccion", jerarquia=s.jerarquia), publicada, id_, anexos.GUIA_20,
+                         None, s.texto, f"Publicada en el Portal del SAT, no en el DOF; sha256 del PDF {huella}.")
+        return resumen + [{"documento": "GUIA-A20", "secciones": len(secciones), "vigente_desde": publicada.isoformat(),
+                           "sha256": huella}]
+
+
 def _en_cache(url: str) -> Path:
     ruta = ruta_cache(url)
     if not ruta.exists():
@@ -311,9 +391,12 @@ def _plano(texto: str) -> str:
 
 
 def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None,
-              resoluciones: list[FuenteRmf] = FUENTES_RMF) -> list[dict]:
+              resoluciones: list[FuenteRmf] = FUENTES_RMF, anexos: list[FuenteAnexo] | None = None) -> list[dict]:
     """Construye en un archivo temporal y lo cambia de golpe: el servidor nunca ve una base a medias.
-    `vectores`: una `vectores.Cache` para llenar los embeddings; sin ella, la base queda solo con BM25."""
+    `vectores`: una `vectores.Cache` para llenar los embeddings; sin ella, la base queda solo con BM25.
+    `anexos`: por omisión, los de los años de `resoluciones`."""
+    if anexos is None:
+        anexos = [a for a in FUENTES_ANEXOS if a.anio in {r.anio for r in resoluciones}]
     destino.parent.mkdir(parents=True, exist_ok=True)
     temporal = destino.with_suffix(".construyendo")
     temporal.unlink(missing_ok=True)
@@ -327,6 +410,11 @@ def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None,
                 leyes.append((f, actual, actual if f.base_url == f.actual_url else leer(f.base_url)))
                 c.decretos_de(f, actual)
             resumen = [c.ley(*ley) for ley in leyes] + [c.rmf(f) for f in resoluciones]
+            for f in anexos:  # el de cada año rige hasta que rige el del siguiente (`anexos.vigor`)
+                sig = min((a for a in anexos if a.numero == f.numero and a.anio > f.anio), key=lambda a: a.anio, default=None)
+                resumen.append(c.anexo(f, vigor_anexo(sig.anio, sig.publicado) if sig else date(f.anio + 1, 1, 1)))
+            if resoluciones:
+                resumen += c.anexo_20()
             resumen.append({"documento": "grafo", **aristas.enlazar(con)})
             almacen.indexar(con)
             if vectores is not None:

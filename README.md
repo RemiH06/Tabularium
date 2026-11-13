@@ -20,10 +20,10 @@
 
 El nombre viene del *Tabularium*, el archivo oficial de Roma en el Capitolio (78 a. C.), donde se guardaban leyes, decretos y registros del erario.
 
-El repo no trae texto legal: los documentos se bajan de las fuentes oficiales (LeyesBiblio de la Cámara de Diputados, copias fechadas de archive.org, minisitio de normatividad del SAT) a una caché local, y la base se regenera desde ahí.
+El repo no trae texto legal: los documentos se bajan de las fuentes oficiales (LeyesBiblio de la Cámara de Diputados, copias fechadas de archive.org, minisitio de normatividad del SAT, portal del Anexo 20) a una caché local, y la base se regenera desde ahí. Los dos PDF del Anexo 20 se bajan a mano: su portal solo responde por HTTP.
 
 ```diff
-- En desarrollo: cubre la LIVA, la LISR, el CFF y la RMF de 2024 a 2026 desde el 2024-01-01; faltan los anexos de CFDI.
+- En desarrollo: cubre la LIVA, la LISR, el CFF, la RMF de 2024 a 2026 y sus anexos 8, 20 y 29 desde el 2024-01-01.
 - No sustituye a un abogado o contador que firme.
 ```
 
@@ -69,6 +69,7 @@ claude mcp add --transport http tabularium http://127.0.0.1:8061/mcp
 - Versiones intermedias que ninguna copia conserva (el art. 141 del CFF de enero a abril de 2026), reconstruidas desde el decreto, marcadas como reconstruidas y verificadas contra una copia en PDF que la construcción no usa.
 - Disparadores de SQLite que impiden sobrescribir o borrar una versión.
 - RMF por año (la numeración de las reglas cambia de un año a otro): versión base desde el PDF publicado y una versión nueva por cada modificación que la marca en la compilada del SAT. El estilo del PDF (negritas para el epígrafe, cursivas para las referencias) separa reglas, epígrafes y referencias.
+- Anexos de la RMF por año: el 8 (cada tarifa del ISR como tabla de texto, con los renglones comprobados centavo a centavo; la LISR las trae como imagen), el 29 (por apartado, versionado por modificación como la RMF) y el 20 (estándar del CFDI 4.0 por elemento y guía de llenado por nodo). Un anexo rige desde el día siguiente a su publicación si sale después del 1 de enero, y el del año anterior sigue hasta entonces.
 - Grafo de referencias extraído con expresiones regulares, sin LLM: qué artículos reglamenta cada regla (su línea de referencias) y a qué unidades remite cada texto ("artículo 27 de esta Ley", "regla 2.1.6."). Solo destinos que existen en el corpus.
 - Descarga respetuosa: un cliente, pausa de 2.5 s por host, User-Agent genérico, escritura atómica y registro de cada petición.
 - Herramientas MCP: `articulo(documento, unidad, fecha)`, `versiones(documento, unidad)` y `buscar(consulta, fecha)`, híbrida: BM25 (FTS5) sobre raíces en español (Snowball), sin palabras vacías y con siglas (CFDI, RFC, RESICO), más embeddings de bge-m3 cuantizado a int8 (ONNX), fusionados por rango. Un salto por el grafo: una regla encontrada sube al artículo que reglamenta, y cada resultado trae sus unidades relacionadas. Un artículo o regla pedido por número ("art. 27 LISR", "regla 2.1.6") sale primero. En una Raspberry Pi 5 responde en unos 160 ms.
@@ -76,7 +77,6 @@ claude mcp add --transport http tabularium http://127.0.0.1:8061/mcp
 
 ## Funcionalidades futuras
 
-- Anexos de la RMF: el 8 (tarifas del ISR), el 29 y el estándar de CFDI (Anexo 20).
 - Revisión diaria del DOF y *Novellae*: notas de parche por reforma, con diff literal y etiquetas de efecto.
 
 ## Autoría

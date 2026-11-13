@@ -1,6 +1,6 @@
 # Preguntas de prueba (borrador)
 
-Conjunto para RNF-06: recall@5 de al menos 0.85 sobre 52 preguntas con unidad esperada y fecha, medido contra la unidad y contra la versión (el umbral se exige contra la versión). Las 40 primeras son el borrador de la iteración 0 (2026-11-10); las 12 siguientes salen de la lista de Remi del 2026-11-12.
+Conjunto para RNF-06: recall@5 de al menos 0.85 sobre 54 preguntas con unidad esperada y fecha, medido contra la unidad y contra la versión (el umbral se exige contra la versión). Las 40 primeras son el borrador de la iteración 0 (2026-11-10); las 12 siguientes salen de la lista de Remi del 2026-11-12, y las 2 últimas, del Anexo 8 (iteración 3).
 
 ## Cómo se armó
 
@@ -8,7 +8,7 @@ Conjunto para RNF-06: recall@5 de al menos 0.85 sobre 52 preguntas con unidad es
 - **Fecha** es la fecha de consulta (`buscar(consulta, fecha)`). El sistema debe devolver la versión vigente ese día.
 - **Versión esperada** es la fecha del DOF de la última reforma de esa unidad dentro de la versión que debe devolverse, tomada de las notas de la Cámara ("Párrafo reformado DOF ..."). "Sin nota de reforma" significa que el texto no trae ninguna nota. Para la RMF es la fecha de publicación de la resolución del año; ninguna de las seis reglas elegidas trae marca de modificación.
 - Tipos: **exacta** (se pide por número, prueba BM25), **conceptual** (lenguaje natural, prueba embeddings) y **temporal** (la misma unidad en dos fechas con textos distintos, prueba RF-04).
-- Reparto: 12 de LISR, 14 de CFF, 6 de LIVA, 6 de RMF y 2 de anexos de CFDI. Once temporales.
+- Reparto de las 40: 12 de LISR, 14 de CFF, 6 de LIVA, 6 de RMF y 2 del Anexo 20 (estándar y guía de llenado del CFDI). Once temporales.
 
 ## Las 40 preguntas
 
@@ -52,8 +52,8 @@ Conjunto para RNF-06: recall@5 de al menos 0.85 sobre 52 preguntas con unidad es
 | 36 | conceptual | ¿Cómo se factura al público en general con un CFDI global? | RMF 2026 | regla 2.7.1.21 | 2026-06-01 | 2025-12-28 |
 | 37 | conceptual | ¿Cuándo hay que emitir el CFDI con complemento de pagos? | RMF 2025 | regla 2.7.1.32 | 2025-09-01 | 2024-12-30 |
 | 38 | exacta | regla 3.13.2 RMF 2026 | RMF 2026 | regla 3.13.2 | 2026-11-10 | 2025-12-28 |
-| 39 | conceptual | ¿Es obligatorio el código postal del domicilio fiscal del receptor en el CFDI 4.0? | Anexo 20, estándar CFDI 4.0 | Nodo Receptor, atributo DomicilioFiscalReceptor | 2026-11-10 | 2022-01-13 |
-| 40 | conceptual | ¿Qué clave de forma de pago lleva un CFDI con método de pago PPD? | Anexo 20, guía de llenado | Nodo Comprobante, campo FormaPago | 2026-11-10 | vigente al bajar (Last-Modified 2026-01-17) |
+| 39 | conceptual | ¿Es obligatorio el código postal del domicilio fiscal del receptor en el CFDI 4.0? | RMF2022-A20 | sección I.A Receptor (atributo DomicilioFiscalReceptor) | 2026-11-10 | 2022-01-13 |
+| 40 | conceptual | ¿Qué clave de forma de pago lleva un CFDI con método de pago PPD? | GUIA-A20 | sección I Comprobante (campo FormaPago) | 2026-11-10 | 2026-01-17 (Portal del SAT, Last-Modified) |
 
 ## Qué distingue a cada versión en las temporales
 
@@ -74,7 +74,7 @@ Sirven para probar la regla de citar o callar y los bordes del versionado. No ti
 |---|---|---|---|
 | A | ¿Qué dice el artículo 30-B del CFF? | 2026-02-01 | No devolverlo como vigente: se adicionó con el decreto del DOF 07-11-2025, pero entró en vigor el 2026-04-01. |
 | B | ¿Qué formas de garantía acepta el CFF? | 2026-02-01 | Devolver la versión intermedia del art. 141 (vigente del 2026-01-01 al 2026-04-09). No está en ninguna copia fechada: hay que reconstruirla con el decreto del 07-11-2025. |
-| C | ¿Cuál es la tarifa anual del ISR de personas físicas en 2026? | 2026-04-30 | El art. 152 de la LISR en LeyesBiblio no trae la tarifa actualizada; la vigente está en el Anexo 8 de la RMF, que entra en la iteración 3 (decisión del 2026-11-12). Hasta entonces, la respuesta debe advertirlo. |
+| C | ¿Cuál es la tarifa anual del ISR de personas físicas en 2026? | 2026-04-30 | El art. 152 de la LISR en LeyesBiblio no trae la tarifa (es imagen). Desde la iteración 3 está en el Anexo 8 de la RMF 2026, sección C.II, y el art. 152 la enlaza por el grafo. Pasó al recall como pregunta 53. |
 | D | ¿Cuántos días de vacaciones me corresponden por ley? | 2026-11-10 | Callar: la LFT está fuera del corpus de la v1. |
 | E | ¿Qué decía la regla 2.4.10 de la RMF sobre la constancia de situación fiscal? | 2026-03-01 | En la RMF 2026 ese tema es la regla 2.4.9. Buscar por número sin el año devuelve otra regla. |
 
@@ -100,6 +100,15 @@ Fraseadas como las haría una persona física con actividad profesional en Méxi
 | 50 | 27 | conceptual | ¿Qué es la defraudación fiscal y qué pena tiene? | CFF | art. 108 | 2026-11-10 |
 | 51 | 31 | conceptual | Si presento tarde mis declaraciones sin que el SAT me lo pida, ¿me multan? | CFF | art. 73 | 2026-11-10 |
 | 52 | 34 | conceptual | Voy a constituir una sociedad, ¿cuándo tengo que inscribirla en el RFC? | CFF | art. 27 | 2026-11-10 |
+
+### Anexo 8 (iteración 3, 2026-11-12)
+
+Las tarifas que la LISR trae como imagen (R-03). Cada año es un documento propio (`RMF2026-A8`).
+
+| # | Tipo | Pregunta | Documento | Unidad esperada | Fecha | Versión esperada (DOF) |
+|---|---|---|---|---|---|---|
+| 53 | conceptual | ¿Cuál es la tarifa anual del ISR de personas físicas en 2026? | RMF2026-A8 | sección C.II | 2026-04-30 | 2025-12-28 |
+| 54 | temporal | ¿Qué tarifa mensual se usaba en 2025 para retener ISR por salarios? | RMF2025-A8 | sección B.V | 2025-06-01 | 2024-12-30 |
 
 Lo que se quitó al adaptarlas: "carta invitación" (43) no aparece en el CFF; "Impuesto sobre Sociedades" (44) es de España; la Seguridad Social (48) es el IMSS, fuera de la v1; los pasos mercantiles de la sociedad (52) son de la Ley General de Sociedades Mercantiles, fuera de la v1.
 

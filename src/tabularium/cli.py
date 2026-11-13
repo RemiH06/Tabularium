@@ -47,12 +47,14 @@ def main() -> None:
 
     if args.orden == "descargar":
         from .descarga import Cliente, actualizar, fijos
+        from .anexos import FUENTES_ANEXOS
         from .rmf import FUENTES_RMF
         cliente = Cliente()
         resultado = actualizar(cliente=cliente)
-        # Los PDF de la RMF no cambian una vez publicados: solo se bajan los que faltan.
+        # Los PDF de la RMF y sus anexos no cambian una vez publicados: solo se bajan los que faltan.
         antes = len(cliente.bajados)
-        fijos([u for f in FUENTES_RMF for u in (f.original, *f.compiladas, *f.publicadas.values()) if u], cliente)
+        fijos([u for f in FUENTES_RMF for u in (f.original, *f.compiladas, *f.publicadas.values()) if u]
+              + [u for f in FUENTES_ANEXOS for u in (f.url, *(c for _, c in f.modificaciones))], cliente)
         resultado["documentos"] += cliente.bajados[antes:]
         resultado["reconstruir"] = resultado["reconstruir"] or len(cliente.bajados) > antes
         print(json.dumps(resultado, ensure_ascii=False, indent=2))
