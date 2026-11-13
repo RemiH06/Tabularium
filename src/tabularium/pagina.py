@@ -8,18 +8,25 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from collections import deque
 from contextlib import closing
 from datetime import date, timedelta
 from html import escape
 from pathlib import Path
 
+from urllib.parse import parse_qs
+
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, Response
 from starlette.routing import Route
 
 from . import almacen
+from . import preguntar as pg
 from .almacen import documento_de
+from .glosas import BakerCaido
 from .novellae import novellae
 from .servidor import ruta_db
 
@@ -47,7 +54,7 @@ h2 { margin: 2rem 0 .25rem; font-size: 1.2rem; }
 h3 { margin: 1rem 0 .25rem; font-size: 1.05rem; }
 .suave, .cita { color: var(--suave); font-size: .9rem; }
 form { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; margin: 1rem 0; }
-label { display: flex; flex-direction: column; font-size: .85rem; }
+label { display: flex; flex-direction: column; font-size: .85rem; flex: 1 1 auto; }
 input, select, button { font: inherit; padding: .25rem .4rem; }
 article { border-top: 1px solid var(--linea); padding-bottom: .5rem; }
 .cambio { margin: .75rem 0 1rem; }
@@ -57,6 +64,8 @@ ins { color: var(--agrega); text-decoration-thickness: 2px; }
 .generado { font-size: .8rem; border: 1px solid var(--linea); padding: 0 .3rem; border-radius: .2rem; }
 a { color: inherit; }
 footer { margin: 2rem auto; color: var(--suave); font-size: .85rem; }
+textarea { font: inherit; width: 100%; max-width: 40rem; }
+blockquote { margin: .5rem 0; padding-left: .75rem; border-left: 3px solid var(--linea); white-space: pre-wrap; }
 """
 
 
@@ -102,8 +111,8 @@ def _pagina(titulo: str, cuerpo: str) -> str:
     return (f'<!doctype html><html lang="es"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">'
             f'<title>{escape(titulo)}</title><link rel="stylesheet" href="/estilo.css"></head><body>'
-            f'<header><h1>Tabularium</h1><p class="suave">Novellae: qué cambió en las leyes fiscales de México '
-            f'con cada publicación del DOF.</p></header><main>{cuerpo}</main><footer><p>{escape(AVISO)}</p></footer></body></html>')
+            f'<header><h1>Tabularium</h1><p class="suave">Leyes fiscales de México versionadas, con cita de cada artículo.</p>'
+            f'<nav><a href="/">Novellae</a> · <a href="/preguntar">Preguntar</a></nav></header><main>{cuerpo}</main><footer><p>{escape(AVISO)}</p></footer></body></html>')
 
 
 def _respuesta(html: str, estado: int = 200) -> HTMLResponse:
@@ -164,18 +173,122 @@ def portada(request: Request) -> HTMLResponse:
     return _respuesta(_pagina("Tabularium: Novellae", filtro + rango + cuerpo))
 
 
+# RNF-10: por IP y global, en memoria (no se guarda nada). La IP la pone Cloudflare: la página solo
+# escucha en loopback, así que toda petición llega por el túnel, que sobrescribe esa cabecera.
+POR_IP, VENTANA_IP = 5, 600
+GLOBAL, VENTANA_GLOBAL = 60, 3600
+CUERPO_MAXIMO = 4096
+
+
+class Limite:
+    def __init__(self):
+        self.ips: dict[str, deque] = {}
+        self.todas: deque = deque()
+        self.candado = threading.Lock()
+
+    def permitir(self, ip: str, ahora: float | None = None) -> bool:
+        ahora = time.monotonic() if ahora is None else ahora
+        with self.candado:
+            for cola, ventana in ((self.todas, VENTANA_GLOBAL), *((c, VENTANA_IP) for c in self.ips.values())):
+                while cola and cola[0] <= ahora - ventana:
+                    cola.popleft()
+            self.ips = {k: c for k, c in self.ips.items() if c}
+            mia = self.ips.setdefault(ip, deque())
+            if len(mia) >= POR_IP or len(self.todas) >= GLOBAL:
+                return False
+            mia.append(ahora)
+            self.todas.append(ahora)
+            return True
+
+
+_modelo = threading.Semaphore(1)  # una redacción a la vez: la GPU de Pixilate no es de la página
+
+
+def _un_turno(llamar):
+    def turno(tarea: str, archivo: str) -> dict:
+        if not _modelo.acquire(blocking=False):
+            raise BakerCaido("el modelo está atendiendo otra pregunta; intenta en un minuto")
+        try:
+            return llamar(tarea, archivo)
+        finally:
+            _modelo.release()
+    return turno
+
+
+def _formulario(pregunta: str = "", fecha: str = "") -> str:
+    return (f'<form method="post" action="/preguntar"><label>Pregunta<textarea name="pregunta" rows="3" cols="60" '
+            f'maxlength="{pg.LARGO_MAXIMO}" required>{escape(pregunta)}</textarea></label>'
+            f'<label>Fecha (ejercicio)<input type="date" name="fecha" min="2024-01-01" value="{escape(fecha)}"></label>'
+            f'<button type="submit">Preguntar</button></form>'
+            f'<p class="suave">Responde solo con LISR, CFF, LIVA, la RMF y sus anexos, y cita cada pasaje. Si no lo '
+            f'puede citar, no responde. La pregunta no se guarda.</p>')
+
+
+def _cita(c: dict) -> str:
+    return f'{escape(c["texto"])}. <a href="{escape(c["fuente_url"])}">Fuente</a>'
+
+
+def _resultado(r: pg.Respuesta) -> str:
+    if r.texto:
+        citas = "".join(f'<li><blockquote>{escape(c.texto)}</blockquote><p class="cita">{_cita(c.cita)}</p></li>'
+                        for c in r.citas)
+        return (f'<section><p>{escape(r.texto)} <span class="generado">generado</span></p>'
+                f'<p class="suave">Redactado por un modelo local. Cada cita se verificó letra por letra contra el texto '
+                f'vigente en la fecha.</p><ol>{citas}</ol></section>')
+    if r.fallo:
+        lista = "".join(f'<li class="cita">{_cita(p["cita"])}</li>' for p in r.pasajes)
+        return (f'<section><p>No hay respuesta redactada ahora: {escape(r.fallo)}.</p>'
+                f'<p>Estos son los artículos y reglas que encontró la búsqueda:</p><ol>{lista}</ol></section>')
+    return "<section><p>El corpus no responde esto con citas verificables, así que Tabularium no responde.</p></section>"
+
+
+def preguntar_get(request: Request) -> HTMLResponse:
+    return _respuesta(_pagina("Tabularium: Preguntar", _formulario()))
+
+
+async def preguntar_post(request: Request) -> HTMLResponse:
+    cuerpo = b""
+    async for trozo in request.stream():
+        cuerpo += trozo
+        if len(cuerpo) > CUERPO_MAXIMO:
+            return _respuesta(_pagina("Tabularium", "<p>La pregunta es demasiado larga.</p>"), 413)
+    datos = parse_qs(cuerpo.decode("utf-8", "replace"))
+    pregunta, fecha = (datos.get(k, [""])[0].strip() for k in ("pregunta", "fecha"))
+    if not 0 < len(" ".join(pregunta.split())) <= pg.LARGO_MAXIMO:
+        return _respuesta(_pagina("Tabularium", _formulario(pregunta[:pg.LARGO_MAXIMO], fecha)
+                                  + f"<p>La pregunta debe tener entre 1 y {pg.LARGO_MAXIMO} caracteres.</p>"), 400)
+    ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
+    if not request.app.state.limite.permitir(ip):
+        return _respuesta(_pagina("Tabularium", _formulario(pregunta, fecha)
+                                  + "<p>Demasiadas preguntas por ahora; intenta en unos minutos.</p>"), 429)
+
+    def responder() -> pg.Respuesta:
+        with closing(almacen.abrir(request.app.state.db)) as con:
+            return pg.preguntar(con, pregunta, fecha or None, _un_turno(request.app.state.llamar))
+    try:
+        r = await run_in_threadpool(responder)
+    except ValueError as e:
+        return _respuesta(_pagina("Tabularium", _formulario(pregunta, fecha) + f"<p>{escape(str(e))}.</p>"), 400)
+    return _respuesta(_pagina("Tabularium: Preguntar", _formulario(pregunta, fecha) + _resultado(r)))
+
+
 def estilo(request: Request) -> Response:
     return Response(ESTILO, media_type="text/css", headers={**CABECERAS, "Cache-Control": "public, max-age=3600"})
 
 
-def crear_app(db: Path | None = None) -> Starlette:
-    app = Starlette(routes=[Route("/", portada), Route("/estilo.css", estilo)])
-    app.state.db = db or ruta_db()
+def crear_app(db: Path | None = None, llamar=pg._bake) -> Starlette:
+    app = Starlette(routes=[Route("/", portada), Route("/estilo.css", estilo),
+                            Route("/preguntar", preguntar_get, methods=["GET"]),
+                            Route("/preguntar", preguntar_post, methods=["POST"])])
+    app.state.db, app.state.llamar, app.state.limite = db or ruta_db(), llamar, Limite()
     return app
 
 
 def servir() -> None:
+    import logging
     import uvicorn
+    # El contador de `preguntar` (solo conteos, nunca la pregunta) va a stderr y de ahí a journald.
+    logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
     app = crear_app()
     _todas(app.state.db)  # la primera visita no paga el cálculo; tras la reconstrucción diaria, sí (una vez)
     # Solo loopback: la publica el túnel de Cloudflare, nunca un puerto abierto (RNF-07).

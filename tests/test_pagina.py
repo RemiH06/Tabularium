@@ -46,3 +46,73 @@ def test_filtrar_da_lo_mismo_que_novellae(db):
         for desde, hasta, doc in [("2024-01-01", "2024-12-31", None), ("2024-01-01", "2026-12-31", "LDP"),
                                   ("2025-01-01", "2025-12-31", None), ("2024-01-01", "2026-12-31", "CFF")]:
             assert _filtrar(todas, desde, hasta, doc) == novellae(con, desde, hasta, doc)
+
+
+# RF-15 y RNF-10 en la página.
+from tabularium.glosas import BakerCaido  # noqa: E402
+from tabularium.pagina import GLOBAL, POR_IP, VENTANA_IP, Limite  # noqa: E402
+
+NUEVO = "Artículo 2o.- Texto nuevo."
+
+
+def _llamar(citas, respuesta="El artículo 2o de la LDP dice texto nuevo."):
+    return lambda tarea, archivo: {"citas": citas, "no_encontrado": not citas, "respuesta": respuesta}
+
+
+def _preguntar(cliente, pregunta="texto nuevo", fecha="2024-05-01", **cabeceras):
+    return cliente.post("/preguntar", data={"pregunta": pregunta, "fecha": fecha}, headers=cabeceras)
+
+
+def test_preguntar_responde_con_citas(db):
+    r = _preguntar(TestClient(crear_app(db, _llamar([NUEVO]))))
+    assert r.status_code == 200 and "<blockquote>Artículo 2o.- Texto nuevo.</blockquote>" in r.text
+    assert "LDP, art. 2o, vigente desde 2024-04-02" in r.text and "generado" in r.text
+    assert TestClient(crear_app(db)).get("/preguntar").status_code == 200
+
+
+def test_preguntar_calla_sin_citas_validas(db):
+    r = _preguntar(TestClient(crear_app(db, _llamar(["algo que la ley no dice"]))))
+    assert "no responde" in r.text and "<blockquote>" not in r.text and "El artículo 2o" not in r.text
+
+
+def test_preguntar_con_el_baker_caido_muestra_la_busqueda(db):
+    def caido(tarea, archivo):
+        raise BakerCaido("Pixilate apagada")
+    r = _preguntar(TestClient(crear_app(db, caido)))
+    assert "No hay respuesta redactada" in r.text and "LDP, art. 2o" in r.text
+
+
+def test_preguntar_valida_la_entrada(db):
+    cliente = TestClient(crear_app(db, _llamar([NUEVO])))
+    assert _preguntar(cliente, pregunta="").status_code == 400
+    assert _preguntar(cliente, pregunta="x" * 501).status_code == 400
+    assert _preguntar(cliente, fecha="2020-01-01").status_code == 400  # antes del corpus
+    assert cliente.post("/preguntar", content=b"pregunta=" + b"x" * 5000,
+                        headers={"content-type": "application/x-www-form-urlencoded"}).status_code == 413
+    r = _preguntar(cliente, pregunta="<script>alert(1)</script> texto nuevo")
+    assert "<script>" not in r.text
+
+
+def test_preguntar_limite_por_ip(db):
+    cliente = TestClient(crear_app(db, _llamar([NUEVO])))
+    estados = [_preguntar(cliente, **{"cf-connecting-ip": "1.1.1.1"}).status_code for _ in range(POR_IP + 1)]
+    assert estados == [200] * POR_IP + [429]
+    assert _preguntar(cliente, **{"cf-connecting-ip": "2.2.2.2"}).status_code == 200
+
+
+def test_limite_ventanas():
+    lim = Limite()
+    assert all(lim.permitir("a", 0) for _ in range(POR_IP)) and not lim.permitir("a", 1)
+    assert lim.permitir("a", VENTANA_IP + 1)  # pasó la ventana
+    lim = Limite()
+    assert all(lim.permitir(str(i), 0) for i in range(GLOBAL)) and not lim.permitir("nueva", 1)
+
+
+def test_una_redaccion_a_la_vez(db):
+    from tabularium import pagina
+    pagina._modelo.acquire()  # otra pregunta ocupa el modelo
+    try:
+        r = _preguntar(TestClient(crear_app(db, _llamar([NUEVO]))))
+    finally:
+        pagina._modelo.release()
+    assert "atendiendo otra pregunta" in r.text and "LDP, art. 2o" in r.text

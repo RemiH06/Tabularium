@@ -1,4 +1,4 @@
-"""Línea de comandos: `tabularium descargar`, `revisar`, `construir`, `glosar`, `evaluar`, `novellae`, `servir` y `pagina`."""
+"""Línea de comandos: `tabularium descargar`, `revisar`, `construir`, `glosar`, `evaluar`, `novellae`, `preguntar`, `servir` y `pagina`."""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +35,12 @@ def main() -> None:
     e.add_argument("-k", type=int, default=5)
     e.add_argument("--json", action="store_true", help="salida completa en JSON")
     sub.add_parser("servir", help="levanta el servidor MCP (TABULARIUM_HOST, TABULARIUM_PUERTO)")
+    pr = sub.add_parser("preguntar", help="respuesta con citas verificadas del Baker tabularium (RF-15); pide Pixilate")
+    pr.add_argument("pregunta", nargs="?", help="sin pregunta, con --evaluar")
+    pr.add_argument("--fecha", help="AAAA-MM-DD; por omisión, hoy")
+    pr.add_argument("--evaluar", action="store_true", help="criterio de RF-15 con 20 preguntas del conjunto de prueba")
+    pr.add_argument("--db", type=Path)
+    pr.add_argument("--json", action="store_true")
     sub.add_parser("pagina", help="levanta la página pública de Novellae (TABULARIUM_PAGINA_HOST, TABULARIUM_PAGINA_PUERTO)")
     pe = sub.add_parser("pendientes", help="exporta los fragmentos sin vector en la caché, para la GPU")
     pe.add_argument("--db", type=Path)
@@ -118,6 +124,26 @@ def main() -> None:
         with closing(almacen.abrir(args.db or ruta_db())) as con:
             r = evaluar(con, k=args.k)
         print(json.dumps(r, ensure_ascii=False, indent=2) if args.json else reporte(r))
+    elif args.orden == "preguntar":
+        from contextlib import closing
+        from dataclasses import asdict
+        from . import almacen, preguntar as pg
+        from .servidor import ruta_db
+        with closing(almacen.abrir(args.db or ruta_db())) as con:
+            if args.evaluar:
+                r = pg.evaluar(con)
+                print(json.dumps(r, ensure_ascii=False, indent=2) if args.json else pg.reporte(r))
+                raise SystemExit(0 if pg._ok(r) else 1)
+            if not args.pregunta:
+                p.error("falta la pregunta")
+            r = pg.preguntar(con, args.pregunta, args.fecha)
+        if args.json:
+            print(json.dumps(asdict(r), ensure_ascii=False, indent=2))
+        elif r.texto:
+            print(r.texto + "\n\n" + "\n".join(f"- {c.cita['texto']}\n  «{c.texto}»" for c in r.citas))
+        else:
+            print(f"Sin respuesta redactada: {r.fallo or 'el corpus no lo dice con citas verificables'}.\nResultados:\n"
+                  + "\n".join(f"- {x['cita']['texto']}" for x in r.pasajes))
     elif args.orden == "pagina":
         from .pagina import servir
         servir()

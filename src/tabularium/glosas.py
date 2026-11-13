@@ -32,11 +32,11 @@ class BakerCaido(Exception):
     """El gateway no respondió o respondió fuera de esquema: se detiene y lo demás queda en null."""
 
 
-def baker(*args: str) -> dict:
+def baker(*args: str, timeout: int = 900) -> dict:
     comando = shlex.split(os.environ.get("TABULARIUM_BAKER", "baker")) + list(args)
     try:
-        # Tope de 15 min: la primera llamada puede esperar a que llama-swap cargue el modelo.
-        r = subprocess.run(comando, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+        # Tope de 15 min por omisión: la primera llamada puede esperar a que llama-swap cargue el modelo.
+        r = subprocess.run(comando, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise BakerCaido(f"no se pudo correr {comando[0]}: {e}") from e
     if r.returncode:
