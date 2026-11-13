@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from functools import lru_cache
+import threading
 
 import numpy as np
 
@@ -49,10 +49,18 @@ class Modelo:
         return (v / np.linalg.norm(v)).astype(np.float32)
 
 
-@lru_cache(maxsize=1)
+_modelo: Modelo | None = None
+_carga = threading.Lock()
+
+
 def modelo() -> Modelo:
-    """Se carga una vez por proceso (1.4 s en la Pi)."""
-    return Modelo()
+    """Se carga una vez por proceso (1.4 s en la Pi). Con candado: con `lru_cache`, diez preguntas
+    simultáneas en la página cargaban diez copias (~1 GB cada una) y el kernel mató el proceso."""
+    global _modelo
+    with _carga:
+        if _modelo is None:
+            _modelo = Modelo()
+        return _modelo
 
 
 class Cache:

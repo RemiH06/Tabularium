@@ -206,6 +206,9 @@ class Limite:
 
 
 _modelo = threading.Semaphore(1)  # una redacción a la vez: la GPU de Pixilate no es de la página
+# Preguntas en proceso a la vez, búsqueda incluida: cada una embebe la consulta en la CPU de la Pi.
+_en_proceso = threading.BoundedSemaphore(2)
+ESPERA = 30  # segundos que una pregunta espera turno antes de recibir 503
 
 
 def _un_turno(llamar):
@@ -288,11 +291,19 @@ async def preguntar_post(request: Request) -> HTMLResponse:
         return _respuesta(_pagina("Tabularium", _formulario(pregunta, fecha)
                                   + "<p>Demasiadas preguntas por ahora; intenta en unos minutos.</p>"), 429)
 
-    def responder() -> pg.Respuesta:
-        with closing(almacen.abrir(request.app.state.db)) as con:
-            return pg.preguntar(con, pregunta, fecha or None, _un_turno(request.app.state.llamar))
+    def responder() -> pg.Respuesta | None:
+        if not _en_proceso.acquire(timeout=ESPERA):
+            return None
+        try:
+            with closing(almacen.abrir(request.app.state.db)) as con:
+                return pg.preguntar(con, pregunta, fecha or None, _un_turno(request.app.state.llamar))
+        finally:
+            _en_proceso.release()
     try:
         r = await run_in_threadpool(responder)
+        if r is None:
+            return _respuesta(_pagina("Tabularium", _formulario(pregunta, fecha)
+                                      + "<p>Hay muchas preguntas en este momento; intenta en un momento.</p>"), 503)
     except ValueError as e:
         return _respuesta(_pagina("Tabularium", _formulario(pregunta, fecha) + f"<p>{escape(str(e))}.</p>"), 400)
     return _respuesta(_pagina("Tabularium: Preguntar", _formulario(pregunta, fecha) + _resultado(r)))
@@ -334,6 +345,10 @@ def servir() -> None:
     logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
     app = crear_app()
     _todas(app.state.db)  # la primera visita no paga el cálculo; tras la reconstrucción diaria, sí (una vez)
+    with closing(almacen.abrir(app.state.db)) as con:
+        if con.execute("SELECT 1 FROM fragmentos LIMIT 1").fetchone():
+            from .vectores import modelo
+            modelo()  # al arrancar y no con la primera pregunta (como el MCP)
     # Solo loopback: la publica el túnel de Cloudflare, nunca un puerto abierto (RNF-07).
     # Fijo en loopback, sin variable: en otra interfaz, CF-Connecting-IP se podría falsificar desde la LAN.
     uvicorn.run(app, host="127.0.0.1",

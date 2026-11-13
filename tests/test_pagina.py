@@ -148,3 +148,33 @@ def test_el_fallo_del_baker_no_se_muestra(db):
         raise BakerCaido("http://100.64.0.1:8090 rechazó la llave")
     r = _preguntar(TestClient(crear_app(db, caido)))
     assert "el modelo no está disponible" in r.text and "100.64" not in r.text and "8090" not in r.text
+
+
+def test_el_modelo_se_carga_una_vez_con_hilos(monkeypatch):
+    """Diez preguntas a la vez cargaban diez copias del modelo y el kernel mataba la página."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from tabularium import vectores
+    cargas = []
+
+    class Lento:
+        def __init__(self):
+            cargas.append(1)
+            time.sleep(0.2)
+    monkeypatch.setattr(vectores, "Modelo", Lento)
+    monkeypatch.setattr(vectores, "_modelo", None)
+    with ThreadPoolExecutor(10) as ex:
+        modelos = list(ex.map(lambda _: vectores.modelo(), range(10)))
+    assert len(cargas) == 1 and all(m is modelos[0] for m in modelos)
+
+
+def test_sin_turno_responde_503(db, monkeypatch):
+    from tabularium import pagina
+    monkeypatch.setattr(pagina, "ESPERA", 0.1)
+    tomados = [pagina._en_proceso.acquire() for _ in range(2)]
+    try:
+        r = _preguntar(TestClient(crear_app(db, _llamar([NUEVO]))))
+    finally:
+        for _ in tomados:
+            pagina._en_proceso.release()
+    assert r.status_code == 503 and "intenta en un momento" in r.text
