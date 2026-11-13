@@ -53,12 +53,13 @@ claude mcp add --transport http tabularium http://127.0.0.1:8061/mcp
 
 ## Argumentos de ejecución
 
-- `tabularium descargar [--construir] [--db RUTA]` revisa el índice de LeyesBiblio y baja solo las leyes cuya fecha de última reforma cambió; las copias base de archive.org y los PDF de la RMF, una sola vez. Con `--construir`, regenera la base si bajó algo.
+- `tabularium descargar [--construir] [--db RUTA]` revisa el índice de LeyesBiblio y baja solo las leyes cuya fecha de última reforma cambió; las copias base de archive.org, una sola vez. Las fuentes de la RMF y de sus anexos salen de la página de cada año en el minisitio del SAT, y de ahí baja los PDF nuevos. Con `--construir`, regenera la base si bajó algo.
 - `tabularium construir [--db RUTA] [--sin-vectores]` regenera la base desde la caché. La construye en un archivo temporal y la cambia de golpe, así que el servidor nunca ve una base a medias.
+- `tabularium glosar [--desde AAAA-MM-DD] [--limite N] [--construir]` pide al Baker `glosador` de [Bakery](https://github.com/RemiH06/Bakery) la etiqueta (▲ amplía, ▼ restringe, ◆ aclara) y el resumen de cada cambio de las Novellae que no los tenga. Se guardan en `cache/glosas.db` y se muestran como generados. Llama a la CLI `baker` (o al comando de `TABULARIUM_BAKER`); si Pixilate no responde, se detiene y lo demás queda en null.
 - `tabularium evaluar [-k 5] [--json] [--db RUTA]` mide recall@k con las preguntas de `docs/preguntas_prueba.md`, contra la unidad y contra la versión vigente.
 - `tabularium servir` levanta el servidor MCP (HTTP streamable) en `/mcp`.
 - `tabularium pendientes [--db RUTA] SALIDA.jsonl` exporta los fragmentos que aún no tienen vector, y `tabularium importar VECTORES.npz` guarda los que calculó `lotes/vectorizar_gpu.py` en una GPU. Sirve para la carga inicial: embeber miles de fragmentos en CPU toma horas.
-- Variables de entorno: `TABULARIUM_DB` (por defecto `data/tabularium.db`), `TABULARIUM_CACHE` (`cache`), `TABULARIUM_HOST` (`127.0.0.1`) y `TABULARIUM_PUERTO` (`8061`).
+- Variables de entorno: `TABULARIUM_DB` (por defecto `data/tabularium.db`), `TABULARIUM_CACHE` (`cache`), `TABULARIUM_HOST` (`127.0.0.1`), `TABULARIUM_PUERTO` (`8061`) y `TABULARIUM_BAKER` (`baker`).
 
 ## Funcionalidades
 

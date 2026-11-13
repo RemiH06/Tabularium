@@ -435,6 +435,8 @@ def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None,
                             [(p.cod_nota, p.publicado_dof, p.edicion, p.titulo, " ".join(p.documentos), p.url)
                              for p in detectadas])
             resumen.append({"documento": "publicaciones del DOF", "detectadas": len(detectadas)})
+            from .glosas import copiar  # glosas importa novellae, que importa almacen
+            resumen.append({"documento": "glosas", "copiadas": copiar(con)})
             almacen.indexar(con)
             if vectores is not None:
                 almacen.vectorizar(con, vectores)

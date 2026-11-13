@@ -2,19 +2,21 @@
 
 Lo objetivo sale de las versiones: qué unidades cambió cada decreto y el diff literal, por
 palabras, entre la versión anterior y la nueva. ✚ (nueva) y ✖ (derogada) también son objetivas.
-▲ ▼ ◆ y el resumen son interpretación de un modelo y se marcan como generados (pendiente).
+▲ ▼ ◆ y el resumen son interpretación de un modelo (`glosas.py`) y se marcan como generados.
 Una publicación que el SIDOF detectó (`dof.py`) y cuyo texto aún no está en el corpus sale como
 Novella pendiente, con su enlace al DOF: así se cumple RNF-03 aunque la fuente tarde.
 """
 from __future__ import annotations
 
 import difflib
+import hashlib
 import re
 import sqlite3
 from datetime import date, timedelta
 
 from .almacen import _COLUMNAS, _JOIN, cita, documento_de
 
+EFECTOS = {"amplia": "▲", "restringe": "▼", "aclara": "◆"}  # lo que genera el Baker (`glosas.py`)
 DEROGADA = re.compile(r"\(\s*se deroga\s*\)|^\W*derogad[ao]\W*$", re.I)
 Diff = list[tuple[str, str]]  # ("=" | "-" | "+", texto)
 
@@ -33,6 +35,11 @@ def diff(viejo: str, nuevo: str) -> Diff:
         if j2 > j1:
             salida.append(("+", "".join(b[j1:j2])))
     return salida
+
+
+def llave(anterior: str, nuevo: str) -> str:
+    """De un cambio, para su glosa generada (`glosas.py`)."""
+    return hashlib.sha256(f"{anterior}\0{nuevo}".encode("utf-8")).hexdigest()
 
 
 def recortar(d: Diff, contexto: int = 12) -> Diff:
@@ -63,10 +70,15 @@ def _cambio(con: sqlite3.Connection, fila: sqlite3.Row, decreto: str, contexto: 
         efecto, d = "✖", diff(previa["texto"], fila["texto"])
     else:
         efecto, d = None, diff(previa["texto"], fila["texto"])
+    glosa = con.execute("SELECT efecto, resumen, modelo FROM glosas WHERE llave = ?",
+                        (llave(previa["texto"], fila["texto"]),)).fetchone() if previa and efecto is None else None
     if d is not None and contexto is not None:
         d = recortar(d, contexto)
-    return {"unidad": fila["unidad"], "efecto": efecto, "efecto_generado": False if efecto else None,
-            "resumen": None, "cita": cita(fila), "anterior": cita(previa) if previa else None,
+    return {"unidad": fila["unidad"], "efecto": efecto or (EFECTOS[glosa["efecto"]] if glosa else None),
+            # Generado: lo dice un modelo (R-05) y el diff es la verdad. None: todavía sin glosa.
+            "efecto_generado": False if efecto else (True if glosa else None),
+            "resumen": glosa["resumen"] if glosa else None, "modelo": glosa["modelo"] if glosa else None,
+            "cita": cita(fila), "anterior": cita(previa) if previa else None,
             "texto": fila["texto"] if previa is None else None, "diff": d,
             # Otras publicaciones que rigen el mismo día: el diff es de todas juntas.
             "junta": [x for (x,) in con.execute("SELECT ? UNION SELECT decreto FROM versiones_decretos WHERE version = ?",

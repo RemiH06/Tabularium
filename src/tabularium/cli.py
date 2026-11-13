@@ -1,4 +1,4 @@
-"""Línea de comandos: `tabularium descargar`, `revisar`, `construir`, `evaluar`, `novellae` y `servir`."""
+"""Línea de comandos: `tabularium descargar`, `revisar`, `construir`, `glosar`, `evaluar`, `novellae` y `servir`."""
 from __future__ import annotations
 
 import argparse
@@ -21,8 +21,13 @@ def main() -> None:
     nv.add_argument("--desde")
     nv.add_argument("--hasta")
     nv.add_argument("--documento")
+    g = sub.add_parser("glosar", help="etiqueta y resumen de cada cambio con el Baker glosador (RF-11); pide Pixilate")
+    g.add_argument("--desde", help="AAAA-MM-DD; por defecto, todos los cambios desde el corte")
+    g.add_argument("--hasta")
+    g.add_argument("--limite", type=int, help="cuántos cambios pedir como máximo")
+    g.add_argument("--construir", action="store_true", help="regenera la base si generó alguna glosa")
     c = sub.add_parser("construir", help="regenera la base desde la caché de documentos fuente")
-    for s in (d, c):
+    for s in (d, c, g):
         s.add_argument("--db", type=Path, help="ruta de la base (por defecto TABULARIUM_DB o data/tabularium.db)")
         s.add_argument("--sin-vectores", action="store_true", help="solo BM25: no baja el modelo ni embebe")
     e = sub.add_parser("evaluar", help="recall@k con las preguntas de docs/preguntas_prueba.md (RNF-06)")
@@ -66,6 +71,19 @@ def main() -> None:
         from .servidor import ruta_db
         with closing(almacen.abrir(args.db or ruta_db())) as con:
             print(json.dumps(novellae(con, args.desde, args.hasta, args.documento), ensure_ascii=False, indent=2))
+    elif args.orden == "glosar":
+        from contextlib import closing
+        from . import almacen
+        from .almacen import CORTE
+        from .glosas import glosar
+        from .servidor import ruta_db
+        with closing(almacen.abrir(args.db or ruta_db())) as con:
+            r = glosar(con, args.desde or CORTE.isoformat(), args.hasta, args.limite)
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        if args.construir and r["hechas"]:
+            _construir(args.db, not args.sin_vectores)
+        if r["error"]:
+            raise SystemExit(f"glosar se detuvo: {r['error']}")
     elif args.orden == "descargar":
         from . import dof
         from . import minisitio

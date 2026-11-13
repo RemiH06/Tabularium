@@ -90,6 +90,14 @@ CREATE TABLE publicaciones (
     documentos TEXT NOT NULL,  -- ids separados por espacio: "RMF2026 RMF2026-A29"
     url TEXT NOT NULL
 );
+-- Glosa generada de un cambio (`glosas.py`): llave en el texto anterior y el nuevo. Se copia de `cache/glosas.db`.
+CREATE TABLE glosas (
+    llave TEXT PRIMARY KEY,
+    efecto TEXT NOT NULL CHECK (efecto IN ('amplia', 'restringe', 'aclara')),
+    resumen TEXT NOT NULL,
+    modelo TEXT,
+    generado TEXT NOT NULL
+);
 -- Un vector por fragmento de cada versión (`vectores.py`); vacía si la base se construyó sin vectores.
 CREATE TABLE fragmentos (
     version INTEGER NOT NULL REFERENCES versiones(id),
