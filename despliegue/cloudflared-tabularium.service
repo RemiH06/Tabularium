@@ -9,7 +9,8 @@ Wants=network-online.target
 [Service]
 # TUNNEL_TOKEN=... en un archivo de root con permisos 600; systemd lo lee antes de bajar privilegios.
 EnvironmentFile=/etc/cloudflared/tabularium.env
-ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --metrics 127.0.0.1:20242 run
+# IPv4: el IPv6 de la red de casa no sale a internet (ver /etc/gai.conf) y cada conexión por QUIC lo intentaba primero.
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --edge-ip-version 4 --metrics 127.0.0.1:20242 run
 Restart=on-failure
 RestartSec=5
 # Mínimo privilegio: usuario efímero sin home, sin capacidades y con el sistema en solo lectura.
