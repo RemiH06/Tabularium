@@ -1,0 +1,12 @@
+# A las 23:15 ya están en el SIDOF la edición matutina y la vespertina del día: RNF-03 pide menos de 24 h.
+# `descargar` revisa los últimos 7 días, así que un día perdido (Pi apagada) se recupera en la siguiente corrida.
+[Unit]
+Description=Tabularium: trabajo diario
+
+[Timer]
+OnCalendar=*-*-* 23:15
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

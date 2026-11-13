@@ -1,0 +1,19 @@
+# Trabajo diario de Tabularium en frambuesa-yi (unidad de usuario; ver despliegue/README.md).
+# Revisa los últimos 7 días del SIDOF, LeyesBiblio y el minisitio del SAT, baja lo nuevo y reconstruye
+# la base si hace falta (RF-01, RF-06, RNF-03). Después pide las glosas que falten al Baker de Pixilate.
+[Unit]
+Description=Tabularium: DOF, descarga, construcción y glosas
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/tabularium
+# BAKERS_URL y BAKERS_API_KEY, con permisos 600 y fuera del repo.
+EnvironmentFile=%h/.config/tabularium/env
+# El modelo de embeddings ya está en la caché de Hugging Face: no se sale a internet por él.
+Environment=HF_HUB_OFFLINE=1
+Environment=TABULARIUM_BAKER=%h/.local/bin/baker
+ExecStart=%h/.local/bin/uv run --frozen --no-dev tabularium descargar --construir
+# El "-" deja pasar la falla: con Pixilate apagada las glosas quedan en null y se piden en la siguiente corrida.
+ExecStart=-%h/.local/bin/uv run --frozen --no-dev tabularium glosar --construir
+Nice=10
+TimeoutStartSec=2h
