@@ -12,7 +12,8 @@ from . import almacen
 
 INSTRUCCIONES = (
     "Corpus versionado de normas fiscales de México desde el 2024-01-01: LIVA, LISR, CFF y la Resolución "
-    "Miscelánea Fiscal de cada año (RMF2024, RMF2025 y RMF2026, con sus modificaciones). "
+    "Miscelánea Fiscal de cada año (RMF2024, RMF2025 y RMF2026, con sus modificaciones) y sus anexos 8, 20 y 29. "
+    "`novellae` dice qué cambió en cada publicación del DOF. "
     "Regla: cita documento, unidad y fecha de versión de cada resultado (campo `cita.texto`) o no respondas. "
     "Las preguntas fiscales son por ejercicio: pasa `fecha` (AAAA-MM-DD) cuando la pregunta sea sobre otro "
     "momento que hoy. No sustituye a un abogado o contador que firme."
@@ -54,6 +55,20 @@ def crear_servidor(db: Path | None = None) -> MCPServer:
         ninguno trata el tema, no respondas."""
         with closing(almacen.abrir(db)) as con:
             return almacen.buscar(con, consulta, fecha, limite)
+
+    @servidor.tool()
+    def novellae(desde: str | None = None, hasta: str | None = None, documento: str | None = None) -> list[dict]:
+        """Notas de parche: lo que cambió cada publicación del DOF entre `desde` y `hasta` (fechas de
+        publicación AAAA-MM-DD; por omisión, los últimos 90 días), de la más nueva a la más vieja.
+        `documento` filtra ("CFF", "RMF2026", "Anexo 8"). Por unidad: `diff` literal por palabras
+        ("=" igual, "-" quitado, "+" agregado; "[…]" recorta lo que no cambió), la cita de la versión
+        nueva y de la anterior, y `efecto`: ✚ nueva y ✖ derogada son objetivos; ▲ amplía, ▼ restringe y
+        ◆ aclara son generados por un modelo (`efecto_generado`) o null si aún no hay. Un documento
+        `nuevo` (la RMF de un año) no trae diff. `pendiente`: el DOF ya lo publicó y el texto aún no
+        está en el corpus. El texto completo de cada versión se pide con `articulo`."""
+        from . import novellae as n
+        with closing(almacen.abrir(db)) as con:
+            return n.novellae(con, desde, hasta, documento)
 
     return servidor
 

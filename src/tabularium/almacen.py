@@ -73,6 +73,23 @@ CREATE TABLE aristas (
     UNIQUE (version, tipo, documento, clave)
 );
 CREATE INDEX aristas_destino ON aristas (documento, clave);
+-- Otras publicaciones que una versión junta, además de `versiones.decreto` (la última): rigen el
+-- mismo día y no hay texto intermedio entre ellas. Las Novellae de cada una muestran el cambio.
+CREATE TABLE versiones_decretos (
+    version INTEGER NOT NULL REFERENCES versiones(id),
+    decreto TEXT NOT NULL REFERENCES decretos(id),
+    UNIQUE (version, decreto)
+);
+-- Publicaciones del DOF que tocan el corpus, detectadas en el SIDOF (`dof.py`, RF-06). Una
+-- publicación sin versiones de su fecha en alguno de sus documentos es una Novella pendiente.
+CREATE TABLE publicaciones (
+    cod_nota INTEGER PRIMARY KEY,
+    publicado_dof TEXT NOT NULL,
+    edicion TEXT NOT NULL,
+    titulo TEXT NOT NULL,
+    documentos TEXT NOT NULL,  -- ids separados por espacio: "RMF2026 RMF2026-A29"
+    url TEXT NOT NULL
+);
 -- Un vector por fragmento de cada versión (`vectores.py`); vacía si la base se construyó sin vectores.
 CREATE TABLE fragmentos (
     version INTEGER NOT NULL REFERENCES versiones(id),

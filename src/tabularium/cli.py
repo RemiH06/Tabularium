@@ -1,16 +1,26 @@
-"""Línea de comandos: `tabularium descargar`, `construir`, `evaluar` y `servir`."""
+"""Línea de comandos: `tabularium descargar`, `revisar`, `construir`, `evaluar`, `novellae` y `servir`."""
 from __future__ import annotations
 
 import argparse
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 
 def main() -> None:
     p = argparse.ArgumentParser(prog="tabularium")
     sub = p.add_subparsers(dest="orden", required=True)
-    d = sub.add_parser("descargar", help="baja las leyes que cambiaron en LeyesBiblio (RF-01)")
-    d.add_argument("--construir", action="store_true", help="regenera la base si bajó algo")
+    d = sub.add_parser("descargar", help="revisa el DOF de los últimos días (RF-06) y baja las leyes que cambiaron (RF-01)")
+    d.add_argument("--construir", action="store_true", help="regenera la base si bajó algo o hay publicaciones nuevas")
+    d.add_argument("--dias", type=int, default=7, help="días hacia atrás que se revisan en el SIDOF (por defecto 7)")
+    r = sub.add_parser("revisar", help="detecta en el SIDOF las publicaciones que tocan el corpus (RF-06)")
+    r.add_argument("--desde", type=date.fromisoformat, help="AAAA-MM-DD; por defecto, hace 6 días")
+    r.add_argument("--hasta", type=date.fromisoformat, help="AAAA-MM-DD; por defecto, hoy")
+    nv = sub.add_parser("novellae", help="notas de parche de las publicaciones entre dos fechas (RF-11)")
+    nv.add_argument("--db", type=Path)
+    nv.add_argument("--desde")
+    nv.add_argument("--hasta")
+    nv.add_argument("--documento")
     c = sub.add_parser("construir", help="regenera la base desde la caché de documentos fuente")
     for s in (d, c):
         s.add_argument("--db", type=Path, help="ruta de la base (por defecto TABULARIUM_DB o data/tabularium.db)")
@@ -45,18 +55,35 @@ def main() -> None:
                     print(f"{cache.importar(list(z['hashes']), z['vectores'])} vectores nuevos en la caché")
         return
 
-    if args.orden == "descargar":
+    if args.orden == "revisar":
+        from . import dof
+        hasta = args.hasta or date.today()
+        print(json.dumps(dof.revisar(dof.dias(args.desde or hasta - timedelta(6), hasta)), ensure_ascii=False, indent=2))
+    elif args.orden == "novellae":
+        from contextlib import closing
+        from . import almacen
+        from .novellae import novellae
+        from .servidor import ruta_db
+        with closing(almacen.abrir(args.db or ruta_db())) as con:
+            print(json.dumps(novellae(con, args.desde, args.hasta, args.documento), ensure_ascii=False, indent=2))
+    elif args.orden == "descargar":
+        from . import dof
         from .descarga import Cliente, actualizar, fijos
         from .anexos import FUENTES_ANEXOS
         from .rmf import FUENTES_RMF
         cliente = Cliente()
+        hoy = date.today()
+        revision = dof.revisar(dof.dias(hoy - timedelta(max(args.dias, 1) - 1), hoy), cliente)
         resultado = actualizar(cliente=cliente)
+        resultado["documentos"] = [u for u in resultado["documentos"] if "sidof.segob.gob.mx" not in u]
+        resultado["publicaciones"] = revision["publicaciones"]
         # Los PDF de la RMF y sus anexos no cambian una vez publicados: solo se bajan los que faltan.
         antes = len(cliente.bajados)
         fijos([u for f in FUENTES_RMF for u in (f.original, *f.compiladas, *f.publicadas.values()) if u]
               + [u for f in FUENTES_ANEXOS for u in (f.url, *(c for _, c in f.modificaciones))], cliente)
         resultado["documentos"] += cliente.bajados[antes:]
-        resultado["reconstruir"] = resultado["reconstruir"] or len(cliente.bajados) > antes
+        nuevas = _publicaciones_nuevas(args.db, {p["cod_nota"] for p in revision["publicaciones"]})
+        resultado["reconstruir"] = resultado["reconstruir"] or len(cliente.bajados) > antes or bool(nuevas)
         print(json.dumps(resultado, ensure_ascii=False, indent=2))
         if args.construir and resultado["reconstruir"]:
             _construir(args.db, not args.sin_vectores)
@@ -73,6 +100,22 @@ def main() -> None:
     else:
         from .servidor import servir
         servir()
+
+
+def _publicaciones_nuevas(db: Path | None, detectadas: set[int]) -> set[int]:
+    """Las detectadas que la base aún no registra: hay que reconstruir para que salgan como Novella."""
+    import sqlite3
+    from .servidor import ruta_db
+    ruta = db or ruta_db()
+    if not ruta.exists():
+        return detectadas
+    con = sqlite3.connect(f"file:{ruta.as_posix()}?mode=ro", uri=True)
+    try:
+        return detectadas - {c for (c,) in con.execute("SELECT cod_nota FROM publicaciones")}
+    except sqlite3.OperationalError:  # base de antes de RF-06, sin la tabla
+        return detectadas
+    finally:
+        con.close()
 
 
 def _construir(db: Path | None, con_vectores: bool) -> None:

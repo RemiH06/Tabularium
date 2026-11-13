@@ -67,8 +67,9 @@ def leer(url: str) -> Ley:
 def decreto_id(publicado: date, ley: str | None = None) -> str:
     """La expedición de una ley lleva la ley en el id: el CFF y una reforma a LIVA salieron el
     mismo día (DOF 31-12-1981)."""
-    # shortcut: el id es la fecha; un segundo decreto del mismo día recibe sufijo (`decreto`).
-    # Cambiar a la clave del SIDOF cuando llegue RF-06 (iteración 4).
+    # El id es la fecha (con el documento en la RMF y sus anexos); un segundo decreto del mismo día recibe
+    # sufijo (`decreto`). La clave del SIDOF no lo reemplaza: se enlaza por fecha y documento con la
+    # tabla `publicaciones` (`novellae._url`), que existe aunque el SIDOF no tenga el día en caché.
     return f"DOF-{publicado.isoformat()}" + (f"-{ley}" if ley else "")
 
 
@@ -173,9 +174,14 @@ class Construccion:
             if not posteriores:
                 raise ValueError(f"{f.documento} art. {u.id}: el texto cambió sin nota de reforma después del corte")
             # Una versión por fecha de vigencia, citando la última publicación que rige ese día.
+            # Las demás publicaciones que rigen ese mismo día van en `versiones_decretos`: el CFF del
+            # 07-11-2025 y el Anexo 5 del 28-12-2025 rigen los dos desde el 2026-01-01 y no hay texto intermedio.
             por_vigor: dict[date, date] = {}
-            for publicado in sorted(posteriores):
-                por_vigor[self.vigor(f.documento, u.id, publicado, decretos)] = publicado
+            juntas: dict[date, list[date]] = {}
+            for publicado in sorted(set(posteriores)):
+                vigor = self.vigor(f.documento, u.id, publicado, decretos)
+                por_vigor[vigor] = publicado
+                juntas.setdefault(vigor, []).append(publicado)
             fechas = sorted(por_vigor)
             textos, notas, urls = [u.texto], [None], [f.actual_url]
             for desde, siguiente in zip(reversed(fechas[:-1]), reversed(fechas[1:])):
@@ -186,7 +192,7 @@ class Construccion:
                 textos.insert(0, deshacer(textos[0], i))
                 notas.insert(0, f"Versión reconstruida: deshace la reforma del DOF {por_vigor[siguiente]}.")
                 urls.insert(0, i.fuente_url)
-            for publicado in por_vigor.values():  # publicaciones que LeyesBiblio no trae como bloque
+            for publicado in set(posteriores):  # publicaciones que LeyesBiblio no trae como bloque
                 if (p := PUBLICACIONES.get(publicado)) and p.titulo:
                     self.decreto(publicado, p.titulo, p.vigor)
             if anterior:
@@ -195,7 +201,9 @@ class Construccion:
                     (fechas[0].isoformat(), f.documento, almacen.clave(u.id)))
             for k, desde in enumerate(fechas):
                 hasta = fechas[k + 1] if k + 1 < len(fechas) else None
-                self.version(f.documento, u, desde, self.citado(por_vigor[desde]), urls[k], hasta, textos[k], notas[k])
+                version = self.version(f.documento, u, desde, self.citado(por_vigor[desde]), urls[k], hasta, textos[k], notas[k])
+                self.con.executemany("INSERT INTO versiones_decretos VALUES (?, ?)",
+                                     [(version, self.citado(p)) for p in juntas[desde][:-1]])
             cambiados.append(u.id)
         return {"documento": f.documento, "articulos": len(actual.articulos), "transitorios": len(actual.transitorios),
                 "decretos": len(actual.decretos), "reformados_desde_corte": cambiados}
@@ -416,6 +424,12 @@ def construir(destino: Path, fuentes: list[Fuente] = FUENTES, vectores=None,
             if resoluciones:
                 resumen += c.anexo_20()
             resumen.append({"documento": "grafo", **aristas.enlazar(con)})
+            from .dof import publicaciones  # dof importa de este módulo
+            detectadas = publicaciones()
+            con.executemany("INSERT INTO publicaciones VALUES (?, ?, ?, ?, ?, ?)",
+                            [(p.cod_nota, p.publicado_dof, p.edicion, p.titulo, " ".join(p.documentos), p.url)
+                             for p in detectadas])
+            resumen.append({"documento": "publicaciones del DOF", "detectadas": len(detectadas)})
             almacen.indexar(con)
             if vectores is not None:
                 almacen.vectorizar(con, vectores)

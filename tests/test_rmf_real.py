@@ -167,3 +167,33 @@ def test_buscar_trae_la_tarifa_del_articulo():
         # Sin artículo con tarifa arriba no se mete ninguna.
         r = almacen.buscar(con, "¿Qué requisitos debe reunir un CFDI en 2026?", "2026-03-01")
         assert not any(x["documento"].endswith("-A8") for x in r)
+
+
+def test_rf11_novellae_reproducen_las_versiones(db):
+    """Cada cambio de cada Novella desde el corte reproduce, carácter por carácter, la versión anterior
+    y la nueva; la del CFF del DOF 07-11-2025 trae todos los artículos que LeyesBiblio anota con esa fecha."""
+    from tabularium.novellae import novellae
+    with closing(almacen.abrir(db)) as con:
+        todas = novellae(con, "2024-01-01", "2026-12-31", contexto=None)
+        cambios = 0
+        for n in todas:
+            for d in n["documentos"]:
+                for c in d.get("cambios", []):
+                    if c["diff"] is None:
+                        assert c["efecto"] == "✚" and c["anterior"] is None
+                        continue
+                    cambios += 1
+                    viejo, nuevo = (almacen.articulo(con, x["documento"], x["unidad"], x["vigente_desde"])["texto"]
+                                    for x in (c["anterior"], c["cita"]))
+                    assert "".join(t for op, t in c["diff"] if op != "+") == viejo, c["cita"]["texto"]
+                    assert "".join(t for op, t in c["diff"] if op != "-") == nuevo, c["cita"]["texto"]
+        assert cambios > 200
+        [cff] = [n for n in todas if n["decreto_dof"] == "DOF-2025-11-07"]
+        en_novella = {c["unidad"] for d in cff["documentos"] for c in d["cambios"]}
+        anotados = {u for (u,) in con.execute("SELECT unidad FROM versiones WHERE documento = 'CFF' AND vigente_hasta IS NULL "
+                                              "AND notas LIKE '%07-11-2025%'")}
+        assert en_novella == anotados and len(en_novella) == 32
+        # Cuatro de ellos también llevan cantidades del Anexo 5 del 28-12-2025, que rige el mismo día.
+        assert sorted(c["unidad"] for d in cff["documentos"] for c in d["cambios"] if c["junta"]) == ["104", "150", "82", "84"]
+        # Una modificación que solo tocó un anexo fuera del corpus sale sin cambios, no como pendiente.
+        assert not [n for n in todas if n["pendiente"] and n["publicado_dof"] <= "2026-10-02"]
