@@ -7,7 +7,7 @@ from test_construir import db  # noqa: F401 (fixture: ley de prueba con el art. 
 
 
 def test_novella_con_diff_cita_y_aviso(db):
-    r = TestClient(crear_app(db)).get("/", params={"desde": "2024-01-01", "hasta": "2024-12-31"})
+    r = TestClient(crear_app(db)).get("/novellae", params={"desde": "2024-01-01", "hasta": "2024-12-31"})
     assert r.status_code == 200
     assert "<del>viejo.</del>" in r.text and "<ins>nuevo.</ins>" in r.text
     assert "LDP, art. 2o" in r.text and "no sustituye a un abogado" in r.text
@@ -17,22 +17,58 @@ def test_novella_con_diff_cita_y_aviso(db):
 def test_filtro_por_documento(db):
     cliente = TestClient(crear_app(db))
     rango = {"desde": "2024-01-01", "hasta": "2024-12-31"}
-    assert "<ins>nuevo.</ins>" in cliente.get("/", params={**rango, "documento": "LDP"}).text
-    otro = cliente.get("/", params={**rango, "documento": "CFF"}).text
+    assert "<ins>nuevo.</ins>" in cliente.get("/novellae", params={**rango, "documento": "LDP"}).text
+    otro = cliente.get("/novellae", params={**rango, "documento": "CFF"}).text
     assert "<ins>" not in otro and "No hay publicaciones" in otro
 
 
 def test_fecha_invalida_y_texto_escapado(db):
     cliente = TestClient(crear_app(db))
-    r = cliente.get("/", params={"desde": "<script>"})
+    r = cliente.get("/novellae", params={"desde": "<script>"})
     assert r.status_code == 400 and "<script>" not in r.text
-    r = cliente.get("/", params={"documento": "<script>alert(1)</script>"})
+    r = cliente.get("/novellae", params={"documento": "<script>alert(1)</script>"})
     assert r.status_code == 200 and "<script>" not in r.text
 
 
-def test_estilo(db):
-    r = TestClient(crear_app(db)).get("/estilo.css")
+def test_estaticos(db):
+    cliente = TestClient(crear_app(db))
+    r = cliente.get("/estatico/estilo.css")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/css")
+    assert "max-age" in r.headers["cache-control"]
+    assert cliente.get("/estatico/portada.js").status_code == 200
+    tipos = {"piezas/augusto.webp": "image/webp", "fuentes/marcellus-400-normal.woff2": "font/woff2", "sello.svg": "image/svg+xml"}
+    for ruta, tipo in tipos.items():  # con nosniff, un tipo equivocado no carga
+        assert cliente.get(f"/estatico/{ruta}").headers["content-type"].startswith(tipo)
+    assert cliente.get("/estatico/../pagina.py").status_code == 404
+
+
+def test_portada(db):
+    """La portada: la pieza con su respaldo, lo último en una oración por cambio y el script propio."""
+    from tabularium.pagina import ESTATICO, MONEDAS, PIEZAS
+    r = TestClient(crear_app(db)).get("/")
+    assert r.status_code == 200
+    assert 'data-textura="/estatico/piezas/' in r.text and "<noscript><img" in r.text
+    assert 'src="/estatico/portada.js"' in r.text and "script-src 'self'" in r.headers["content-security-policy"]
+    assert ' style="' not in r.text  # la CSP bloquea los estilos en línea
+    assert "Lo último en el DOF" in r.text and 'class="novedad revela"' in r.text and "no sustituye a un abogado" in r.text
+    for archivo, *_ in PIEZAS + MONEDAS:  # toda pieza que la portada pueda elegir existe, con sus respaldos
+        for sufijo in ("", "-claro", "-oscuro"):
+            assert (ESTATICO / "piezas" / f"{archivo}{sufijo}.webp").exists()
+
+
+def test_novedad_en_una_oracion(db):
+    """Cada cambio de una publicación sale en un renglón, con su etiqueta y el enlace a su Novella."""
+    from tabularium.pagina import _ancla, _novedad, _todas
+    n = next(n for n in _todas(db)[0] if any(d["documento"] == "LDP" for d in n["documentos"]))
+    html = _novedad(n)
+    assert "LDP 2o." in html and f"#{_ancla(n)}" in html and f'datetime="{n["publicado_dof"]}"' in html
+
+
+def test_oracion():
+    from tabularium.pagina import _oracion
+    assert _oracion("Se amplía el plazo. Además, se aclara la regla 2.1.") == "Se amplía el plazo."
+    assert _oracion("Cambia la tasa del art. 2o.-A de 0% a 16%") == "Cambia la tasa del art."  # límite conocido
+    assert _oracion("Sin punto final") == "Sin punto final."
 
 
 def test_filtrar_da_lo_mismo_que_novellae(db):
@@ -121,12 +157,12 @@ def test_una_redaccion_a_la_vez(db):
 # Auditoría de seguridad (2026-11-13).
 def test_cabeceras_en_toda_respuesta(db):
     cliente = TestClient(crear_app(db), raise_server_exceptions=False)
-    for r in (cliente.get("/no-existe"), cliente.delete("/"), cliente.get("/estilo.css")):
+    for r in (cliente.get("/no-existe"), cliente.delete("/"), cliente.get("/estatico/estilo.css")):
         assert all(r.headers.get(k) == v for k, v in CABECERAS.items())
 
 
 def test_fecha_extrema_no_tumba_la_pagina(db):
-    assert TestClient(crear_app(db)).get("/", params={"hasta": "0001-01-01"}).status_code == 400
+    assert TestClient(crear_app(db)).get("/novellae", params={"hasta": "0001-01-01"}).status_code == 400
 
 
 def test_post_desde_otro_sitio(db):

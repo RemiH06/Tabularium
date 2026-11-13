@@ -1,0 +1,157 @@
+/* Tabularium. La piedra no se borra; el cambio se imprime en rúbrica.
+   Papel de mármol (claro) o de peperino (oscuro), tinta de hollín y cinco pigmentos romanos:
+   rúbrica (la marca y lo que se quita), verdigrís (amplía), púrpura de Tiro (restringe),
+   azul egipcio (aclara) y ocre (nuevo). Armonía: double split complementary desde H = 12°. */
+
+@font-face { font-family: "Marcellus"; src: url("fuentes/marcellus-400-normal.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Literata"; src: url("fuentes/literata-400-normal.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Literata"; font-style: italic; src: url("fuentes/literata-400-italic.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Literata"; font-weight: 600; src: url("fuentes/literata-600-normal.woff2") format("woff2"); font-display: swap; }
+
+:root {
+  color-scheme: light dark;
+  --papel: #EEEBE4; --papel2: #E4E0D7; --texto: #1E1A17; --texto2: #57504A; --linea: #827A70; --veta: #D6D1C6;
+  --rubrica: #A54027; --verde: #1F6B54; --purpura: #A63A5B; --azul: #2E5AC2; --ocre: #795B15;
+  --rubrica-plana: #E7D4CF; --verde-plana: #D1E6E0; --purpura-plana: #E5D2D8; --azul-plana: #CFD6E7; --ocre-plana: #E9E1CE;
+  --hondo: #1E1A17;
+  --titulos: "Marcellus", "Trajan Pro", Georgia, serif;
+  --lectura: "Literata", Georgia, "Times New Roman", serif;
+  --medida: 70rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --papel: #171816; --papel2: #20221F; --texto: #ECE8DF; --texto2: #B3ADA3; --linea: #7D786F; --veta: #2E302C;
+    --rubrica: #D66C51; --verde: #2E9E7C; --purpura: #CB6C88; --azul: #6689DB; --ocre: #AD831F;
+    --rubrica-plana: #402B26; --verde-plana: #283E37; --purpura-plana: #3D292F; --azul-plana: #262E40; --ocre-plana: #413925;
+    --hondo: #ECE8DF;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--papel); color: var(--texto); font: 1.0625rem/1.6 var(--lectura); overflow-x: hidden; }
+a { color: inherit; text-decoration-color: var(--rubrica); text-decoration-thickness: 1px; text-underline-offset: .18em; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--rubrica); outline-offset: 3px; border-radius: 3px; }
+.salto { position: absolute; left: -999px; }
+.salto:focus { left: 1rem; top: 1rem; background: var(--papel); padding: .5rem .75rem; z-index: 2; }
+
+/* Barra: la marca chica y tres lugares */
+.barra { max-width: var(--medida); margin: 0 auto; padding: 1rem 1rem 0; display: flex; flex-wrap: wrap; gap: .5rem 1.5rem;
+  align-items: baseline; justify-content: space-between; }
+.barra .sello { font: 1.15rem/1 var(--titulos); letter-spacing: .14em; text-decoration: none; }
+.barra .sello span { color: var(--rubrica); }
+.barra nav { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+.barra nav a { text-decoration: none; padding: .35rem 0; border-bottom: 2px solid transparent; }
+.barra nav a:hover, .barra nav a[aria-current] { border-bottom-color: var(--rubrica); }
+
+main { max-width: var(--medida); margin: 0 auto; padding: 0 1rem; }
+h1, h2, h3 { font-family: var(--titulos); font-weight: 400; line-height: 1.15; }
+h2 { font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.2rem); margin: 3rem 0 1rem; }
+h3 { font-size: 1.15rem; margin: 1.25rem 0 .35rem; }
+.suave { color: var(--texto2); }
+.chica { font-size: .9rem; }
+
+/* Portada: el lema y la pieza impresa */
+.portada { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 1rem 3rem; align-items: center;
+  min-height: min(88vh, 60rem); padding: 1rem 0 2rem; }
+.marca { font-size: clamp(2.6rem, 1rem + 6.4vw, 6.4rem); letter-spacing: .06em; margin: 0 0 1.25rem; line-height: .95; white-space: nowrap; }
+.marca .punto { color: var(--rubrica); }
+.marca.chica-marca { font-size: clamp(2.2rem, 1.2rem + 3.5vw, 3.6rem); margin: 2.5rem 0 .75rem; letter-spacing: .03em; }
+.bajada { font-size: clamp(1.15rem, 1rem + .6vw, 1.45rem); line-height: 1.45; max-width: 34rem; margin: 0 0 2rem; }
+.bajada em { font-style: italic; color: var(--rubrica); }
+.pieza { margin: 0; position: relative; justify-self: center; width: 100%; max-width: 34rem; }
+.pieza .lienzo { position: relative; width: 100%; aspect-ratio: var(--aspecto, 2 / 3); max-height: 82vh; margin: 0 auto; }
+.pieza canvas, .pieza img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.pieza img { object-fit: contain; }
+.pieza figcaption { font-size: .85rem; color: var(--texto2); margin-top: .5rem; text-align: center; }
+
+/* La caja de preguntar */
+.preguntar { display: grid; gap: .6rem; max-width: 36rem; }
+.preguntar label { display: grid; gap: .3rem; font-size: .95rem; }
+.preguntar .fila { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+textarea, input, select { font: inherit; color: var(--texto); background: var(--papel); border: 1px solid var(--linea);
+  border-radius: 3px; padding: .55rem .7rem; min-height: 2.75rem; }
+textarea { width: 100%; resize: vertical; line-height: 1.45; }
+button { font: 1rem/1 var(--titulos); letter-spacing: .08em; color: var(--papel); background: var(--rubrica); border: 0;
+  border-radius: 3px; padding: .8rem 1.4rem; min-height: 2.75rem; cursor: pointer; transition: transform .12s ease-out, filter .12s; }
+button:hover { filter: brightness(1.06); }
+button:active { transform: translateY(1px) scale(.98); }
+
+/* Lo último: una publicación por renglón, sus cambios en una oración cada uno */
+.novedades { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--veta); }
+.novedad { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: .25rem 1.5rem; padding: 1.1rem 0; border-bottom: 1px solid var(--veta); }
+.novedad time { font: .95rem/1.6 var(--titulos); letter-spacing: .04em; color: var(--texto2); }
+.novedad h3 { margin: 0 0 .35rem; font-size: 1.1rem; }
+.novedad h3 a { text-decoration: none; }
+.novedad h3 a:hover { text-decoration: underline; text-decoration-color: var(--rubrica); }
+.novedad ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+.novedad li { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: .5rem; }
+.novedad .mas { color: var(--texto2); font-size: .95rem; padding-left: 2.1rem; }
+.js .revela { opacity: 0; transform: translateY(.6rem); }
+.js .revela.visto { opacity: 1; transform: none; transition: opacity .5s ease-out, transform .5s cubic-bezier(.2, .7, .2, 1); }
+
+/* Efectos: una tinta plana con su glifo, nunca solo color */
+.efecto { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 3px; font: .8rem/1 system-ui, sans-serif;
+  color: var(--papel); background: var(--texto2); }
+.efecto.amplia { background: var(--verde); }
+.efecto.restringe { background: var(--purpura); }
+.efecto.aclara { background: var(--azul); }
+.efecto.nueva { background: var(--ocre); }
+.efecto.pendiente { background: transparent; color: var(--texto2); border: 1px dashed var(--linea); }
+.generado { font-size: .8rem; color: var(--texto2); border: 1px solid var(--linea); border-radius: 3px; padding: 0 .3rem; white-space: nowrap; }
+
+/* El corpus y el erario */
+.erario { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; gap: 2rem; align-items: start; }
+.cifras { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; margin: 0 0 1.5rem; }
+.cifras div { display: grid; }
+.cifras dt { order: 2; color: var(--texto2); font-size: .95rem; }
+.cifras dd { margin: 0; font: clamp(1.8rem, 1.2rem + 2vw, 2.6rem)/1.1 var(--titulos); }
+.documentos { columns: 2 18rem; column-gap: 2rem; margin: 0; padding: 0; list-style: none; }
+.documentos li { break-inside: avoid; padding: .3rem 0; border-bottom: 1px solid var(--veta); display: flex; gap: .75rem; }
+.documentos b { font-weight: 600; min-width: 7.5rem; }
+.monedas { display: grid; gap: 1rem; }
+.moneda { margin: 0; }
+.moneda .lienzo { position: relative; width: 100%; aspect-ratio: 1; }
+.moneda canvas, .moneda img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.moneda figcaption { font-size: .8rem; color: var(--texto2); text-align: center; }
+
+/* Las Novellae completas */
+.filtro { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: end; margin: 1rem 0 2rem; padding: 1rem; background: var(--papel2); border-radius: 3px; }
+.filtro label { display: grid; gap: .25rem; font-size: .9rem; flex: 1 1 10rem; }
+.novella { border-top: 2px solid var(--texto); padding: .25rem 0 1.5rem; margin-top: 2.5rem; }
+.novella > h2 { margin: .75rem 0 .25rem; font-size: clamp(1.3rem, 1.1rem + 1vw, 1.75rem); }
+.novella section > h3 { font-size: 1rem; font-family: var(--lectura); font-weight: 600; margin-top: 1.5rem; color: var(--texto2); }
+.cambio { margin: 1rem 0 1.5rem; padding-left: 1rem; border-left: 3px solid var(--veta); }
+.cambio > h4 { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin: 0 0 .5rem; font: 1.1rem/1.3 var(--titulos); }
+.diff, .texto { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 46rem; }
+del { background: var(--rubrica-plana); text-decoration: line-through var(--rubrica) 1.5px; }
+ins { background: var(--verde-plana); text-decoration: underline var(--verde) 1px; text-underline-offset: .22em; }
+.cita { color: var(--texto2); font-size: .9rem; }
+
+/* Respuesta de preguntar */
+.respuesta { margin: 2rem 0; max-width: 46rem; }
+.respuesta > p:first-child { font-size: 1.15rem; }
+.respuesta ol { padding-left: 1.25rem; }
+blockquote { margin: .5rem 0 .25rem; padding: .25rem 0 .25rem .9rem; border-left: 3px solid var(--rubrica); white-space: pre-wrap; }
+
+footer { max-width: var(--medida); margin: 4rem auto 0; padding: 1.5rem 1rem 3rem; border-top: 1px solid var(--veta);
+  color: var(--texto2); font-size: .9rem; display: grid; gap: .5rem; }
+footer p { margin: 0; max-width: 52rem; }
+
+@media (max-width: 52rem) {
+  .portada { grid-template-columns: minmax(0, 1fr); min-height: 0; padding-top: .5rem; }
+  .pieza { order: -1; max-width: 22rem; }
+  .pieza .lienzo { max-height: 52vh; }
+  .novedad { grid-template-columns: minmax(0, 1fr); }
+  .erario { grid-template-columns: minmax(0, 1fr); }
+  .monedas { grid-template-columns: repeat(2, minmax(0, 9rem)); justify-content: center; }
+}
+@media (max-height: 30rem) and (orientation: landscape) {
+  .portada { min-height: 0; }
+  .pieza .lienzo { max-height: 80vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .js .revela { opacity: 1; transform: none; }
+  button { transition: none; }
+}
