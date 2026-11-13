@@ -125,7 +125,7 @@ Materias fuera del corpus de la v1. Sirven para medir la regla de citar o callar
 | Penal | 21 a 26, 28 | CNPP, Código Penal Federal |
 | Datos personales | 35 (confidencialidad de una gestoría) | LFPDPPP |
 
-Consultas que corre el script de evaluación (2026-11-12). El texto original de Remi no quedó guardado; estas son reformulaciones para México a partir de la materia, pendientes de que Remi las revise.
+Consultas que corre el script de evaluación (2026-11-12). El texto original de Remi no quedó guardado; estas son reformulaciones para México a partir de la materia. **Decisión de Remi (2026-11-12):** se quedan así, en espera, como no respondibles. También son la lista de lo que falta descargar: cada materia dice qué ley haría falta para responderlas (tabla de arriba).
 
 | Original | Materia | Pregunta (callar) |
 |---|---|---|
