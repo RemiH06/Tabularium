@@ -1,6 +1,6 @@
 # Despliegue en frambuesa-yi
 
-Tabularium corre en la Raspberry Pi 5 (`frambuesa-yi`, usuario `sherry`) con tres unidades de systemd de usuario y una del sistema. Nada abre puertos hacia fuera:
+Tabularium corre en la Raspberry Pi 5 (`frambuesa-yi`, con un usuario sin privilegios) con tres unidades de systemd de usuario y una del sistema. Nada abre puertos hacia fuera:
 
 | Unidad | Qué hace | Dónde escucha |
 |---|---|---|
@@ -9,7 +9,7 @@ Tabularium corre en la Raspberry Pi 5 (`frambuesa-yi`, usuario `sherry`) con tre
 | `tabularium-pagina.service` | Página pública (Novellae y `preguntar`) | `127.0.0.1:8062`, fijo en loopback |
 | `cloudflared-tabularium.service` (sistema) | Túnel de Cloudflare: `tabularium.remlam.dev` → `http://127.0.0.1:8062` | Solo conexiones salientes; métricas en `127.0.0.1:20242` |
 
-Por qué systemd y no Docker Compose (la forma estándar de `hosteo`): el servicio es un proceso de Python con `uv` y un archivo de SQLite, ya corría así el timer, y la Pi no tiene Docker. Cada unidad lleva lo que daría el contenedor: tope de memoria, sin privilegios nuevos y, en el túnel, un usuario efímero con el sistema en solo lectura.
+Por qué systemd y no Docker Compose (la forma estándar de `hosteo`): el servicio es un proceso de Python con `uv` y un archivo de SQLite, ya corría así el timer, y la Pi no tiene Docker. Cada unidad lleva lo que daría el contenedor: sin privilegios nuevos y, en el túnel, un usuario efímero con el sistema en solo lectura. Página y MCP piden `MemoryMax=1500M`, pero el kernel de la Pi arranca con `cgroup_disable=memory` y hoy no se aplica: hace falta `cgroup_enable=memory` en `/boot/firmware/cmdline.txt` y reiniciar (decisión de Bakery). Mientras tanto, la página atiende dos preguntas a la vez y carga el modelo una sola vez.
 
 ## Qué hay en la Pi
 
@@ -25,7 +25,7 @@ Por qué systemd y no Docker Compose (la forma estándar de `hosteo`): el servic
 | `cloudflared` | Paquete del repo de Cloudflare (`/etc/apt/sources.list.d/cloudflared.sources`, llave en `/usr/share/keyrings/cloudflare-main.gpg`), con actualizaciones automáticas (`/etc/apt/apt.conf.d/51unattended-cloudflared`) |
 | Token del túnel | `/etc/cloudflared/tabularium.env` (`TUNNEL_TOKEN=...`), de root, permisos 600 |
 | Big Chungus (conectado el 2026-11-13, sin montar) | No se usa: su partición es un grupo de almacenamiento de Windows (Storage Spaces), que Linux no lee, y tiene respaldos de Remi. No formatear. Ver `plan.md`, sección 10 |
-| Linger | `sudo loginctl enable-linger sherry`: las unidades de usuario corren sin sesión abierta |
+| Linger | `sudo loginctl enable-linger <usuario>`: las unidades de usuario corren sin sesión abierta |
 | IPv4 primero | `/etc/gai.conf`: `precedence ::ffff:0:0/96  100`. El IPv6 de la red de casa no sale a internet y cada petición esperaba 240 s a que fallara |
 
 ## Instalar o actualizar
