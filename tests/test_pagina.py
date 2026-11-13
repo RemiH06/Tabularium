@@ -116,3 +116,35 @@ def test_una_redaccion_a_la_vez(db):
     finally:
         pagina._modelo.release()
     assert "atendiendo otra pregunta" in r.text and "LDP, art. 2o" in r.text
+
+
+# Auditoría de seguridad (2026-11-13).
+def test_cabeceras_en_toda_respuesta(db):
+    cliente = TestClient(crear_app(db), raise_server_exceptions=False)
+    for r in (cliente.get("/no-existe"), cliente.delete("/"), cliente.get("/estilo.css")):
+        assert all(r.headers.get(k) == v for k, v in CABECERAS.items())
+
+
+def test_fecha_extrema_no_tumba_la_pagina(db):
+    assert TestClient(crear_app(db)).get("/", params={"hasta": "0001-01-01"}).status_code == 400
+
+
+def test_post_desde_otro_sitio(db):
+    cliente = TestClient(crear_app(db, _llamar([NUEVO])))
+    assert _preguntar(cliente, **{"sec-fetch-site": "cross-site"}).status_code == 403
+    assert _preguntar(cliente, origin="https://malo.example").status_code == 403
+    assert _preguntar(cliente, origin="http://testserver", **{"sec-fetch-site": "same-origin"}).status_code == 200
+
+
+def test_ipv6_cuenta_por_su_64(db):
+    cliente = TestClient(crear_app(db, _llamar([NUEVO])))
+    estados = [_preguntar(cliente, **{"cf-connecting-ip": f"2001:db8:1:2::{i:x}"}).status_code for i in range(POR_IP + 1)]
+    assert estados[-1] == 429
+    assert _preguntar(cliente, **{"cf-connecting-ip": "2001:db8:1:3::1"}).status_code == 200
+
+
+def test_el_fallo_del_baker_no_se_muestra(db):
+    def caido(tarea, archivo):
+        raise BakerCaido("http://100.64.0.1:8090 rechazó la llave")
+    r = _preguntar(TestClient(crear_app(db, caido)))
+    assert "el modelo no está disponible" in r.text and "100.64" not in r.text and "8090" not in r.text

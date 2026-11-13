@@ -14,6 +14,7 @@ import re
 from collections import defaultdict
 from datetime import date
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 
 from .almacen import CORTE
 from .anexos import FuenteAnexo
@@ -46,7 +47,12 @@ def enlaces(html: str) -> list[tuple[str, date, str]]:
     salida = []
     for url, texto, fecha in ENLACE.findall(html):
         texto = " ".join(re.sub(r"<[^>]+>", "", texto).split())
-        salida.append((texto, fecha_es(fecha), url if url.startswith("http") else SAT + url))
+        url = url if url.startswith("http") else SAT + url
+        partes = urlsplit(url)
+        # Solo PDF del SAT por HTTPS: si la página se compromete, no mete otro host en la caché ni en
+        # los enlaces "Fuente" de la página pública.
+        if partes.scheme == "https" and (partes.hostname or "").endswith(".sat.gob.mx"):
+            salida.append((texto, fecha_es(fecha), url))
     return salida
 
 

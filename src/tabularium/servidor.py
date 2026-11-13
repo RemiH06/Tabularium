@@ -78,6 +78,15 @@ def servir() -> None:
         if con.execute("SELECT 1 FROM fragmentos LIMIT 1").fetchone():
             from .vectores import modelo
             modelo()  # se carga al arrancar y no en la primera consulta (1.4 s en la Pi)
-    # Solo loopback por defecto. En frambuesa-yi se publica a la tailnet, nunca a internet (RNF-07).
+    from mcp.server.transport_security import TransportSecuritySettings
+    # Solo loopback por defecto. En frambuesa-yi lo publica `tailscale serve` a la tailnet, nunca a
+    # internet (RNF-07), y llega con el Host de la tailnet: TABULARIUM_HOSTS lo agrega a los permitidos
+    # (separados por coma, sin puerto). Lo demás sigue rechazado, contra el DNS rebinding.
+    extra = [h.strip() for h in os.environ.get("TABULARIUM_HOSTS", "").split(",") if h.strip()]
+    locales = ["127.0.0.1", "localhost", "[::1]"]
+    seguridad = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[f"{h}:*" for h in locales + extra] + extra,
+        allowed_origins=[f"http://{h}:*" for h in locales] + [f"https://{h}" for h in extra] + [f"https://{h}:*" for h in extra])
     crear_servidor().run("streamable-http", host=os.environ.get("TABULARIUM_HOST", "127.0.0.1"),
-                         port=int(os.environ.get("TABULARIUM_PUERTO", "8061")))
+                         port=int(os.environ.get("TABULARIUM_PUERTO", "8061")), transport_security=seguridad)

@@ -1,0 +1,38 @@
+# Túnel de Cloudflare de Tabularium en frambuesa-yi (unidad del sistema; ver despliegue/README.md).
+# Túnel administrado desde el panel: su única ruta es tabularium.remlam.dev -> http://127.0.0.1:8062.
+# Sin puertos entrantes: cloudflared solo abre conexiones salientes a Cloudflare.
+[Unit]
+Description=Cloudflare Tunnel de Tabularium
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# TUNNEL_TOKEN=... en un archivo de root con permisos 600; systemd lo lee antes de bajar privilegios.
+EnvironmentFile=/etc/cloudflared/tabularium.env
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --metrics 127.0.0.1:20242 run
+Restart=on-failure
+RestartSec=5
+# Mínimo privilegio: usuario efímero sin home, sin capacidades y con el sistema en solo lectura.
+DynamicUser=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

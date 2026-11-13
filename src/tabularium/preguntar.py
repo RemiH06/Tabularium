@@ -138,6 +138,7 @@ def preguntar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, 
             _redactar(r, consulta, fecha, llamar)
         except BakerCaido as e:
             r.fallo = str(e)
+            registro.warning("Baker caído: %s", e)  # el detalle se queda en journald
     # Solo conteos: la pregunta no se guarda (RNF-10).
     registro.info("preguntar pasajes=%d citas=%d descartadas=%d intentos=%d callar=%s fallo=%s",
                   len(r.pasajes), len(r.citas), len(r.descartadas), r.intentos, r.callar, r.fallo is not None)

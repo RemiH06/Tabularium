@@ -1,0 +1,20 @@
+# Servidor MCP de Tabularium en frambuesa-yi (unidad de usuario; ver despliegue/README.md).
+# Escucha solo en 127.0.0.1:8061; `tailscale serve --https=8061` lo publica a la tailnet, nunca a internet (RNF-07).
+[Unit]
+Description=Tabularium: servidor MCP (tailnet)
+
+[Service]
+WorkingDirectory=%h/tabularium
+# TABULARIUM_HOSTS: el nombre de la Pi en la tailnet, para que el SDK acepte su Host. Fuera del repo.
+EnvironmentFile=%h/.config/tabularium/env
+Environment=HF_HUB_OFFLINE=1
+Environment=TABULARIUM_HOST=127.0.0.1
+Environment=TABULARIUM_PUERTO=8061
+ExecStart=%h/.local/bin/uv run --frozen --no-dev tabularium servir
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+MemoryMax=1500M
+
+[Install]
+WantedBy=default.target

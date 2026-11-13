@@ -68,3 +68,14 @@ def test_entrada_sin_saltos_de_renglon():
     n = {"titulo": "Decreto", "publicado_dof": "2024-04-01"}
     e = glosas.entrada(n, {"documento": "X", "nombre": "Ley X"}, "1o", "uno dos\ntres cuatro", "uno dos tres\ncinco")
     assert "uno dos tres [-cuatro-]{+cinco+}" in e
+
+
+def test_baker_sin_json_o_fuera_de_esquema_es_caido(monkeypatch, tmp_path):
+    import sys
+    from tabularium.glosas import BakerCaido, baker
+    for salida in ("no es json", "[1, 2]"):
+        guion = tmp_path / "b.py"
+        guion.write_text(f"print({salida!r})", encoding="utf-8")
+        monkeypatch.setenv("TABULARIUM_BAKER", f'"{sys.executable}" "{guion}"')
+        with pytest.raises(BakerCaido):
+            baker("run")

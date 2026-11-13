@@ -1,0 +1,21 @@
+# Página pública de Tabularium en frambuesa-yi (unidad de usuario; ver despliegue/README.md).
+# Escucha solo en 127.0.0.1:8062; la publica cloudflared-tabularium.service en tabularium.remlam.dev.
+# Proceso aparte del MCP: un pico de visitas no lo tumba (RNF-10), y su memoria tiene tope propio.
+[Unit]
+Description=Tabularium: página pública (Novellae y preguntar)
+
+[Service]
+WorkingDirectory=%h/tabularium
+# BAKERS_URL y BAKERS_API_KEY para `preguntar`, con permisos 600 y fuera del repo.
+EnvironmentFile=%h/.config/tabularium/env
+Environment=HF_HUB_OFFLINE=1
+Environment=TABULARIUM_BAKER=%h/.local/bin/baker
+Environment=TABULARIUM_PAGINA_PUERTO=8062
+ExecStart=%h/.local/bin/uv run --frozen --no-dev tabularium pagina
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+MemoryMax=1500M
+
+[Install]
+WantedBy=default.target

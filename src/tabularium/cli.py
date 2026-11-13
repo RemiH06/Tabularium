@@ -41,7 +41,7 @@ def main() -> None:
     pr.add_argument("--evaluar", action="store_true", help="criterio de RF-15 con 20 preguntas del conjunto de prueba")
     pr.add_argument("--db", type=Path)
     pr.add_argument("--json", action="store_true")
-    sub.add_parser("pagina", help="levanta la página pública de Novellae (TABULARIUM_PAGINA_HOST, TABULARIUM_PAGINA_PUERTO)")
+    sub.add_parser("pagina", help="levanta la página pública en 127.0.0.1 (TABULARIUM_PAGINA_PUERTO)")
     pe = sub.add_parser("pendientes", help="exporta los fragmentos sin vector en la caché, para la GPU")
     pe.add_argument("--db", type=Path)
     pe.add_argument("salida", type=Path, help="archivo .jsonl ({hash, texto} por línea)")

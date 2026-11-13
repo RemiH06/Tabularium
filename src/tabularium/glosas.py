@@ -37,11 +37,19 @@ def baker(*args: str, timeout: int = 900) -> dict:
     try:
         # Tope de 15 min por omisión: la primera llamada puede esperar a que llama-swap cargue el modelo.
         r = subprocess.run(comando, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        raise BakerCaido(f"no se pudo correr {comando[0]}: {e}") from e
+    except subprocess.TimeoutExpired as e:  # sin el argv: trae la tarea, que en `preguntar` es la pregunta
+        raise BakerCaido(f"el Baker no respondió en {timeout} s") from e
+    except OSError as e:
+        raise BakerCaido(f"no se pudo correr el Baker: {e.strerror}") from e
     if r.returncode:
-        raise BakerCaido((r.stderr.strip().splitlines() or [f"{comando[0]} salió con {r.returncode}"])[-1])
-    return json.loads(r.stdout)
+        raise BakerCaido((r.stderr.strip().splitlines() or [f"el Baker salió con {r.returncode}"])[-1])
+    try:
+        salida = json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        raise BakerCaido("el Baker respondió algo que no es JSON") from e
+    if not isinstance(salida, dict):
+        raise BakerCaido("el Baker respondió fuera de esquema")
+    return salida
 
 
 def textos(d: Diff) -> tuple[str, str]:

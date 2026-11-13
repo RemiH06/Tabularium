@@ -6,6 +6,7 @@ pasa por `escape`: el corpus viene de fuentes externas.
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import threading
 import time
@@ -14,11 +15,11 @@ from contextlib import closing
 from datetime import date, timedelta
 from html import escape
 from pathlib import Path
-
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, Response
 from starlette.routing import Route
@@ -36,9 +37,12 @@ CABECERAS = {
                                "base-uri 'none'; frame-ancestors 'none'",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
+    # Por HTTP local el navegador la ignora; por el túnel (HTTPS) obliga a no volver a HTTP.
+    "Strict-Transport-Security": "max-age=31536000",
 }
 AVISO = ("Tabularium no sustituye a un abogado o contador que firme. El diff es el texto literal de cada versión; "
          "las etiquetas ▲ ▼ ◆ y los resúmenes marcados como generados los escribe un modelo y pueden equivocarse.")
+OCUPADO = "el modelo está atendiendo otra pregunta; intenta en un minuto"
 SIMBOLOS = {"▲": "amplía", "▼": "restringe", "◆": "aclara", "✚": "nueva", "✖": "derogada"}
 
 ESTILO = """
@@ -116,7 +120,7 @@ def _pagina(titulo: str, cuerpo: str) -> str:
 
 
 def _respuesta(html: str, estado: int = 200) -> HTMLResponse:
-    return HTMLResponse(html, status_code=estado, headers=CABECERAS)
+    return HTMLResponse(html, status_code=estado)
 
 
 _cache: dict = {}
@@ -157,7 +161,7 @@ def portada(request: Request) -> HTMLResponse:
     try:
         fin = date.fromisoformat(hasta) if hasta else date.today()
         inicio = date.fromisoformat(desde) if desde else fin - timedelta(90)
-    except ValueError:
+    except (ValueError, OverflowError):  # OverflowError: "0001-01-01" menos 90 días
         return _respuesta(_pagina("Tabularium", "<p>Fecha inválida: usa AAAA-MM-DD.</p>"), 400)
     lista, documentos = _todas(request.app.state.db)
     elegido = documento_de(documento, fin.isoformat()) if documento else None
@@ -207,12 +211,30 @@ _modelo = threading.Semaphore(1)  # una redacción a la vez: la GPU de Pixilate 
 def _un_turno(llamar):
     def turno(tarea: str, archivo: str) -> dict:
         if not _modelo.acquire(blocking=False):
-            raise BakerCaido("el modelo está atendiendo otra pregunta; intenta en un minuto")
+            raise BakerCaido(OCUPADO)
         try:
             return llamar(tarea, archivo)
         finally:
             _modelo.release()
     return turno
+
+
+def _llave(ip: str) -> str:
+    """De quién cuenta el límite: una IPv6 por su /64, que es lo que suele tener una sola casa o máquina."""
+    try:
+        d = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    return str(ipaddress.ip_network(f"{d}/64", strict=False)) if d.version == 6 else str(d)
+
+
+def _mismo_sitio(request: Request) -> bool:
+    """Otro sitio no puede mandar preguntas en nombre de quien lo visita (gastaría su cuota y le
+    mostraría un texto dictado). Los navegadores mandan Sec-Fetch-Site u Origin; sin ninguno, pasa."""
+    sitio, origen = request.headers.get("sec-fetch-site"), request.headers.get("origin")
+    if sitio and sitio not in ("same-origin", "none"):
+        return False
+    return not origen or urlsplit(origen).netloc == request.headers.get("host")
 
 
 def _formulario(pregunta: str = "", fecha: str = "") -> str:
@@ -236,8 +258,10 @@ def _resultado(r: pg.Respuesta) -> str:
                 f'<p class="suave">Redactado por un modelo local. Cada cita se verificó letra por letra contra el texto '
                 f'vigente en la fecha.</p><ol>{citas}</ol></section>')
     if r.fallo:
+        # El detalle (stderr del Baker, rutas) va a journald, no a quien visita.
+        motivo = OCUPADO if r.fallo == OCUPADO else "el modelo no está disponible"
         lista = "".join(f'<li class="cita">{_cita(p["cita"])}</li>' for p in r.pasajes)
-        return (f'<section><p>No hay respuesta redactada ahora: {escape(r.fallo)}.</p>'
+        return (f'<section><p>No hay respuesta redactada ahora: {motivo}.</p>'
                 f'<p>Estos son los artículos y reglas que encontró la búsqueda:</p><ol>{lista}</ol></section>')
     return "<section><p>El corpus no responde esto con citas verificables, así que Tabularium no responde.</p></section>"
 
@@ -257,8 +281,10 @@ async def preguntar_post(request: Request) -> HTMLResponse:
     if not 0 < len(" ".join(pregunta.split())) <= pg.LARGO_MAXIMO:
         return _respuesta(_pagina("Tabularium", _formulario(pregunta[:pg.LARGO_MAXIMO], fecha)
                                   + f"<p>La pregunta debe tener entre 1 y {pg.LARGO_MAXIMO} caracteres.</p>"), 400)
+    if not _mismo_sitio(request):
+        return _respuesta(_pagina("Tabularium", "<p>La pregunta debe enviarse desde esta página.</p>"), 403)
     ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
-    if not request.app.state.limite.permitir(ip):
+    if not request.app.state.limite.permitir(_llave(ip)):
         return _respuesta(_pagina("Tabularium", _formulario(pregunta, fecha)
                                   + "<p>Demasiadas preguntas por ahora; intenta en unos minutos.</p>"), 429)
 
@@ -273,15 +299,32 @@ async def preguntar_post(request: Request) -> HTMLResponse:
 
 
 def estilo(request: Request) -> Response:
-    return Response(ESTILO, media_type="text/css", headers={**CABECERAS, "Cache-Control": "public, max-age=3600"})
+    return Response(ESTILO, media_type="text/css", headers={"Cache-Control": "public, max-age=3600"})
 
 
-def crear_app(db: Path | None = None, llamar=pg._bake) -> Starlette:
+class Cabeceras:
+    """Las cabeceras de seguridad en toda respuesta, también los 404, 405 y 500 de Starlette: envuelve
+    la app completa, por fuera de su manejo de errores."""
+
+    def __init__(self, app: Starlette):
+        self.app, self.state = app, app.state
+
+    async def __call__(self, scope, receive, send):
+        async def enviar(mensaje):
+            if mensaje["type"] == "http.response.start":
+                h = MutableHeaders(scope=mensaje)
+                for k, v in CABECERAS.items():
+                    h.setdefault(k, v)
+            await send(mensaje)
+        await self.app(scope, receive, enviar)
+
+
+def crear_app(db: Path | None = None, llamar=pg._bake) -> Cabeceras:
     app = Starlette(routes=[Route("/", portada), Route("/estilo.css", estilo),
                             Route("/preguntar", preguntar_get, methods=["GET"]),
                             Route("/preguntar", preguntar_post, methods=["POST"])])
     app.state.db, app.state.llamar, app.state.limite = db or ruta_db(), llamar, Limite()
-    return app
+    return Cabeceras(app)
 
 
 def servir() -> None:
@@ -292,6 +335,7 @@ def servir() -> None:
     app = crear_app()
     _todas(app.state.db)  # la primera visita no paga el cálculo; tras la reconstrucción diaria, sí (una vez)
     # Solo loopback: la publica el túnel de Cloudflare, nunca un puerto abierto (RNF-07).
-    uvicorn.run(app, host=os.environ.get("TABULARIUM_PAGINA_HOST", "127.0.0.1"),
+    # Fijo en loopback, sin variable: en otra interfaz, CF-Connecting-IP se podría falsificar desde la LAN.
+    uvicorn.run(app, host="127.0.0.1",
                 port=int(os.environ.get("TABULARIUM_PAGINA_PUERTO", "8062")), proxy_headers=False,
                 access_log=False)  # sin IP ni consulta de quien visita (RNF-07, RNF-10)
