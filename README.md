@@ -72,12 +72,13 @@ claude mcp add --transport http tabularium http://127.0.0.1:8061/mcp
 - Anexos de la RMF por año: el 8 (cada tarifa del ISR como tabla de texto, con los renglones comprobados centavo a centavo; la LISR las trae como imagen), el 29 (por apartado, versionado por modificación como la RMF) y el 20 (estándar del CFDI 4.0 por elemento y guía de llenado por nodo). Un anexo rige desde el día siguiente a su publicación si sale después del 1 de enero, y el del año anterior sigue hasta entonces.
 - Grafo de referencias extraído con expresiones regulares, sin LLM: qué artículos reglamenta cada regla (su línea de referencias) y a qué unidades remite cada texto ("artículo 27 de esta Ley", "regla 2.1.6."). Solo destinos que existen en el corpus.
 - Descarga respetuosa: un cliente, pausa de 2.5 s por host, User-Agent genérico, escritura atómica y registro de cada petición.
-- Herramientas MCP: `articulo(documento, unidad, fecha)`, `versiones(documento, unidad)` y `buscar(consulta, fecha)`, híbrida: BM25 (FTS5) sobre raíces en español (Snowball), sin palabras vacías y con siglas (CFDI, RFC, RESICO), más embeddings de bge-m3 cuantizado a int8 (ONNX), fusionados por rango. Un salto por el grafo: una regla encontrada sube al artículo que reglamenta, y cada resultado trae sus unidades relacionadas. Un artículo o regla pedido por número ("art. 27 LISR", "regla 2.1.6") sale primero. En una Raspberry Pi 5 responde en unos 160 ms.
+- Herramientas MCP: `articulo(documento, unidad, fecha)`, `versiones(documento, unidad)` y `buscar(consulta, fecha)`, híbrida: BM25 (FTS5) sobre raíces en español (Snowball), sin palabras vacías y con siglas (CFDI, RFC, RESICO), más embeddings de bge-m3 cuantizado a int8 (ONNX), fusionados por rango. Un salto por el grafo: una regla encontrada sube al artículo que reglamenta, y cada resultado trae sus unidades relacionadas. Un artículo o regla pedido por número ("art. 27 LISR", "regla 2.1.6") sale primero. Las tarifas del ISR, que casi no se encuentran por sí solas, entran por el artículo que las pide (152 para la anual, 96 para las retenciones). En una Raspberry Pi 5 responde en unos 160 ms.
 - Caché de vectores por hash del texto: reconstruir la base solo embebe lo que cambió.
 
 ## Funcionalidades futuras
 
 - Revisión diaria del DOF y *Novellae*: notas de parche por reforma, con diff literal y etiquetas de efecto.
+- Página pública con las Novellae y un buscador que responde preguntas generales con un modelo local, citando artículo, ley y versión, y verificando cada cita por código.
 
 ## Autoría
 

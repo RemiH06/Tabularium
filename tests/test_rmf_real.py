@@ -148,3 +148,22 @@ def test_anexo_20(db):
         assert "FormaPago" in guia["texto"]
         assert guia["cita"]["texto"].endswith("versión del Portal del SAT del 2026-01-17 (no se publica en el DOF)")
         assert "sha256" in guia["notas"]
+
+
+def test_buscar_trae_la_tarifa_del_articulo():
+    """Preguntas 53 y 54: la tarifa casi no se encuentra sola, pero el artículo que la pide sí; la
+    tarifa de ese artículo, del año de la fecha, entra en el último lugar. Necesita los vectores (sin
+    ellos ninguna tarifa es candidata), así que usa la base construida, no la de la prueba."""
+    from tabularium.servidor import ruta_db
+    if not ruta_db().exists():
+        pytest.skip("sin la base construida con vectores")
+    with closing(almacen.abrir(ruta_db())) as con:
+        if not con.execute("SELECT 1 FROM fragmentos LIMIT 1").fetchone():
+            pytest.skip("la base no tiene vectores")
+        r = almacen.buscar(con, "¿Cuál es la tarifa anual del ISR de personas físicas en 2026?", "2026-04-30")
+        assert ("RMF2026-A8", "C.II") in {(x["documento"], x["unidad"]) for x in r}  # la de 2026, no la C.I de 2025
+        r = almacen.buscar(con, "¿Qué tarifa mensual se usaba en 2025 para retener ISR por salarios?", "2025-06-01")
+        assert ("RMF2025-A8", "B.V") in {(x["documento"], x["unidad"]) for x in r}
+        # Sin artículo con tarifa arriba no se mete ninguna.
+        r = almacen.buscar(con, "¿Qué requisitos debe reunir un CFDI en 2026?", "2026-03-01")
+        assert not any(x["documento"].endswith("-A8") for x in r)

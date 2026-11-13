@@ -273,6 +273,37 @@ def _propagar(con: sqlite3.Connection, puntos: dict[int, float], fecha: str) -> 
             puntos[destino] += s
 
 
+def _con_tarifa(con: sqlite3.Connection, ids: list[int], puntos: dict[int, float], fecha: str, limite: int) -> list[int]:
+    """Una tarifa del Anexo 8 casi no se encuentra por sí sola (es toda números y las 31 de un año se
+    parecen), pero el artículo que la pide sí. Si entre los primeros `limite` hay un artículo y alguna
+    sección de anexo candidata lo reglamenta, una tarifa de ese artículo ocupa el último lugar. Se
+    toma el artículo mejor colocado que tenga alguna, así que la tarifa es la suya, no cualquiera.
+    Entre las suyas gana la que nombra el año de la fecha (el anexo de 2026 trae la tarifa anual de
+    2025 y la de 2026, y las dos reglamentan el art. 152), como "RMF" es la del año de la fecha; luego,
+    la de mejor puntaje."""
+    if limite < 2:
+        return ids
+    arriba, resto = ids[:limite], ids[limite:]
+    marcas = ",".join("?" * len(arriba))
+    if con.execute(f"SELECT 1 FROM versiones WHERE id IN ({marcas}) AND documento GLOB 'RMF*-A*'", arriba).fetchone():
+        return ids  # ya hay una sección de anexo arriba
+    filas = con.execute(
+        f"SELECT v.id, o.id, instr(substr(o.texto, 1, instr(o.texto || char(10), char(10))), ?) > 0 FROM versiones v "
+        f"JOIN aristas a ON a.documento = v.documento AND a.clave = v.clave JOIN versiones o ON o.id = a.version "
+        f"WHERE a.tipo = 'REGLAMENTA' AND v.id IN ({marcas}) AND o.documento GLOB 'RMF*-A*' "
+        f"AND {_VIGENTE.replace('v.', 'o.').replace(':fecha', '?')}", (fecha[:4], *arriba, fecha, fecha)).fetchall()
+    por_articulo: dict[int, list[tuple[int, int]]] = {}
+    for articulo_, seccion, del_anio in filas:
+        por_articulo.setdefault(articulo_, []).append((seccion, del_anio))
+    con_candidata = [a for a, ss in por_articulo.items() if any(s in puntos for s, _ in ss)]
+    if not con_candidata:
+        return ids  # el artículo no tiene tarifa entre las candidatas: la consulta no es de tarifas
+    primero = min(con_candidata, key=arriba.index)
+    elegida = max(por_articulo[primero], key=lambda x: (x[1], puntos.get(x[0], 0.0)))[0]
+    puntos.setdefault(elegida, 0.0)  # puntaje 0: llegó por el grafo, no por la búsqueda
+    return arriba[:-1] + [elegida] + [i for i in [arriba[-1]] + resto if i != elegida]
+
+
 def relacionadas(con: sqlite3.Connection, version: int, fecha: str, limite: int = 10) -> list[dict]:
     """Vecinos a un salto vigentes en `fecha`: lo que la unidad remite o reglamenta, y las reglas que
     la reglamentan a ella."""
@@ -315,6 +346,7 @@ def buscar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, lim
             puntos[i] = puntos.get(i, 0.0) + peso / (RRF + rango)
     _propagar(con, puntos, f)
     ids = sorted(puntos, key=puntos.__getitem__, reverse=True)[:max(limite, CANDIDATOS)]
+    ids = _con_tarifa(con, ids, puntos, f, limite - len(salida))
     marcas = ",".join("?" * len(ids)) or "NULL"
     filas = {r["id"]: r for r in con.execute(f"SELECT {_COLUMNAS}, v.id, substr(v.texto, 1, 300) AS inicio "
                                              f"FROM {_JOIN} WHERE v.id IN ({marcas})", ids)}
