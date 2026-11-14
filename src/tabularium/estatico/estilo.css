@@ -123,6 +123,12 @@ button.discreto:hover { color: var(--texto); border-color: var(--oro); backgroun
 .moneda canvas, .moneda img { position: absolute; inset: 0; width: 100%; height: 100%; }
 .moneda figcaption { font-size: .8rem; color: var(--texto2); text-align: center; }
 
+.revision { font-size: .8rem; color: var(--texto2); margin: -.25rem 0 .6rem; }
+.metodo dl { margin: 0; border-top: 1px solid var(--veta); }
+.metodo dl > div { display: grid; grid-template-columns: minmax(0, 16rem) minmax(0, 1fr); gap: .25rem 2.5rem; padding: 1rem 0; border-bottom: 1px solid var(--veta); }
+.metodo dt { font-weight: 600; }
+.metodo dd { margin: 0; color: var(--texto2); max-width: 46rem; }
+
 /* Páginas internas */
 .barra { max-width: var(--medida); margin: 0 auto; padding: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 main.interna { max-width: var(--medida); margin: 0 auto; padding: 0 1.25rem; }
@@ -153,7 +159,7 @@ footer p { margin: 0; max-width: 56rem; }
   .portada > .enlaces { position: absolute; top: 1.25rem; right: 1.25rem; left: 4.75rem; }
   .encabezado { padding-top: 1.75rem; }
   .escena .lienzo { min-height: 0; height: 58svh; flex: none; }
-  .gayo, .erario { grid-template-columns: minmax(0, 1fr); }
+  .gayo, .erario, .metodo dl > div { grid-template-columns: minmax(0, 1fr); }
   .monedas { grid-template-columns: repeat(2, minmax(0, 9rem)); justify-content: center; }
 }
 @media (max-width: 26rem) {

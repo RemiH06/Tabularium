@@ -53,7 +53,8 @@ def test_portada(db):
     assert 'src="/estatico/portada.js?v=' in r.text and "script-src 'self'" in csp and "connect-src 'self'" in csp
     assert ' style="' not in r.text  # la CSP bloquea los estilos en línea
     assert "Publicaciones recientes en el DOF" in r.text and '<li class="revela">' in r.text and "no sustituye la asesoría" in r.text
-    assert "Consultas a Gayo" in r.text and 'class="pausa' in r.text  # WCAG 2.2.2: lo que se mueve solo se puede pausar
+    assert "Consultas a Gayo" in r.text and 'class="pausa' in r.text
+    assert "Fuentes y método" in r.text and "Fuentes revisadas el " in r.text  # WCAG 2.2.2: lo que se mueve solo se puede pausar
     for archivo, *_ in ESTATUAS + MONEDAS:  # toda pieza de la portada existe, con sus imágenes fijas de respaldo
         for sufijo in ("-claro", "-oscuro"):
             assert (ESTATICO / "piezas" / f"{archivo}{sufijo}.webp").exists()
@@ -153,8 +154,9 @@ def test_limite_ventanas():
     assert all(lim.permitir(str(i), 0) for i in range(GLOBAL)) and not lim.permitir("nueva", 1)
 
 
-def test_una_redaccion_a_la_vez(db):
+def test_una_redaccion_a_la_vez(db, monkeypatch):
     from tabularium import pagina
+    monkeypatch.setattr(pagina, "ESPERA_MODELO", 0.1)  # hace fila, pero no para siempre
     pagina._modelo.acquire()  # otra pregunta ocupa el modelo
     try:
         r = _preguntar(TestClient(crear_app(db, _llamar([NUEVO]))))
@@ -257,3 +259,23 @@ def test_consulta_en_curso_se_actualiza_sola(db, caplog):
 def test_consulta_desconocida(db):
     r = TestClient(crear_app(db)).get("/preguntar/no-existe")
     assert r.status_code == 404 and "ya no está disponible" in r.text
+
+
+def test_la_redaccion_hace_fila_y_suelta_la_busqueda(db):
+    """Con el modelo ocupado, la consulta espera su turno (no falla) y no retiene el turno de búsqueda."""
+    from tabularium import pagina
+    app = crear_app(db, _llamar([NUEVO]))
+    app.state.espera_inicial = 0
+    cliente = TestClient(app)
+    pagina._modelo.acquire()  # otra consulta redactando
+    try:
+        r = _preguntar(cliente)
+        clave = r.url.path.rsplit("/", 1)[1]
+        t = app.state.trabajos.ver(clave)
+        assert not t.listo.wait(0.5) and t.respuesta is not None  # ya buscó y espera turno
+        assert pagina._en_proceso.acquire(blocking=False) and pagina._en_proceso.acquire(blocking=False)
+        pagina._en_proceso.release()
+        pagina._en_proceso.release()
+    finally:
+        pagina._modelo.release()
+    assert t.listo.wait(10) and t.respuesta.citas

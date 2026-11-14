@@ -38,6 +38,7 @@ from . import preguntar as pg
 from .almacen import documento_de
 from .glosas import BakerCaido
 from .novellae import novellae
+from .construir import cache_dir
 from .servidor import ruta_db
 
 # Sin scripts de terceros ni estilos en línea: la política de contenido solo deja lo propio. Las
@@ -53,7 +54,7 @@ CABECERAS = {
 AVISO = ("Tabularium es una herramienta de consulta y no sustituye la asesoría de un abogado o de un contador "
          "público. Los cambios se presentan con el texto literal de cada versión; las etiquetas ▲ ▼ ◆ y los resúmenes "
          "señalados como generados son elaborados por un modelo de lenguaje y pueden contener errores.")
-OCUPADO = "Gayo está atendiendo otra consulta; intente de nuevo en un minuto"
+OCUPADO = "Gayo está atendiendo otra consulta y no se liberó a tiempo; intente de nuevo en unos minutos"
 SIMBOLOS = {"▲": "amplía", "▼": "restringe", "◆": "aclara", "✚": "nueva", "✖": "derogada"}
 
 # Con nosniff, un tipo equivocado deja la imagen o la fuente sin cargar; no depender del sistema.
@@ -215,6 +216,38 @@ def _filtrar(lista: list[dict], desde: str, hasta: str, documento: str | None) -
 
 
 MESES = "ene feb mar abr may jun jul ago sep oct nov dic".split()
+MESES_LARGOS = ("enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre").split()
+
+
+def _fecha_larga(d: date) -> str:
+    return f"{d.day} de {MESES_LARGOS[d.month - 1]} de {d.year}"
+
+
+def _revision(db: Path) -> date:
+    """Cuándo se revisaron las fuentes por última vez: la corrida diaria deja cada petición en el registro
+    de descargas aunque no haya nada nuevo; la base solo cambia cuando lo hay."""
+    rutas = [db, cache_dir() / "_log.jsonl"]
+    return date.fromtimestamp(max(r.stat().st_mtime for r in rutas if r.exists()))
+
+
+METODO = (
+    ("Leyes", "Ley del Impuesto sobre la Renta, Código Fiscal de la Federación y Ley del Impuesto al Valor Agregado, "
+     "tomadas del portal de leyes federales vigentes de la Cámara de Diputados. La versión al 1 de enero de 2024 se "
+     "contrastó con copias fechadas de esa época.", "https://www.diputados.gob.mx/LeyesBiblio/index.htm"),
+    ("Resolución Miscelánea Fiscal", "Ediciones de 2024 a 2026, con sus modificaciones y los anexos 8, 20 y 29, a partir "
+     "de las versiones compiladas que publica el Servicio de Administración Tributaria.", "https://www.sat.gob.mx"),
+    ("Diario Oficial de la Federación", "Revisión diaria mediante el servicio de datos abiertos del DOF. Cada publicación "
+     "que modifica el corpus genera una Novella; mientras su texto no se incorpora, figura como pendiente.",
+     "https://www.dof.gob.mx"),
+    ("Vigencia", "Se determina conforme a los artículos transitorios de cada decreto y no por la fecha de publicación. "
+     "Las notas de reforma que la Cámara intercala en el texto se conservan como datos de la versión, no como texto "
+     "normativo.", None),
+    ("Citas", "Cada resultado indica el ordenamiento, el artículo o la regla, la fecha de inicio de vigencia, el decreto "
+     "que dio origen a la versión y el vínculo a la fuente oficial.", None),
+    ("Interpretación", "Las etiquetas de efecto (▲ amplía, ▼ restringe, ◆ aclara) y los resúmenes se generan con un modelo "
+     "de lenguaje desde la perspectiva del contribuyente y se señalan como tales. El texto comparado siempre es literal.",
+     None),
+)
 
 
 def _fecha_corta(iso: str) -> str:
@@ -285,6 +318,9 @@ def _escena() -> str:
 def portada(request: Request) -> HTMLResponse:
     lista, documentos = _todas(request.app.state.db)
     n_docs, n_unidades, n_versiones, ultima = _cache["cifras"]
+    revision = _fecha_larga(_revision(request.app.state.db))
+    enlace = ' <a href="{}">Fuente oficial</a>'
+    metodo = "".join(f'<div><dt>{t}</dt><dd>{escape(d)}{enlace.format(u) if u else ""}</dd></div>' for t, d, u in METODO)
     renglones = "".join(_renglon(r) for r in _recientes(lista)) or "<li>Sin publicaciones registradas.</li>"
     docs = "".join(f"<li><b>{escape(i)}</b><span>{escape(n)}</span></li>" for i, n in documentos)
     cuerpo = (
@@ -292,7 +328,8 @@ def portada(request: Request) -> HTMLResponse:
         f'<div class="encabezado"><h1 class="titulo">Tabularium</h1><hr class="filete">'
         f'<p class="bajada">Legislación fiscal federal de México, con cada versión conservada desde el 1 de enero de '
         f'2024 y su vigencia acreditada por el decreto que la reformó.</p></div>'
-        f'<div class="recientes"><h2>Publicaciones recientes en el DOF</h2><ol class="cambios">{renglones}</ol>'
+        f'<div class="recientes"><h2>Publicaciones recientes en el DOF</h2>'
+        f'<p class="revision">Fuentes revisadas el {revision}.</p><ol class="cambios">{renglones}</ol>'
         f'<a class="todas" href="/novellae">Consultar todas las Novellae, con el texto suprimido y el incorporado</a></div>'
         f'{_escena()}</section>'
         f'<section class="seccion gayo" aria-labelledby="titulo-gayo"><div><h2 id="titulo-gayo">Consultas a Gayo</h2>'
@@ -309,7 +346,9 @@ def portada(request: Request) -> HTMLResponse:
         f'publicación incorporada: '
         f'{_fecha_corta(ultima) if ultima else "ninguna"}.</p>'
         f'<ul class="documentos">{docs}</ul></div>'
-        f'<div class="monedas">{"".join(_moneda(*m) for m in MONEDAS)}</div></section>')
+        f'<div class="monedas">{"".join(_moneda(*m) for m in MONEDAS)}</div></section>'
+        f'<section id="metodo" class="seccion metodo" aria-labelledby="titulo-metodo"><h2 id="titulo-metodo">Fuentes y '
+        f'método</h2><dl>{metodo}</dl></section>')
     return _respuesta(_pagina("Tabularium", cuerpo, "/", portada=True, descripcion=(
         "Legislación fiscal federal de México versionada desde 2024 (LISR, CFF, LIVA, RMF y anexos), con las reformas "
         "publicadas en el DOF y consultas respondidas con citas textuales.")))
@@ -371,14 +410,16 @@ class Limite:
 
 
 _modelo = threading.Semaphore(1)  # una redacción a la vez: la GPU de Pixilate no es de la página
-# Preguntas en proceso a la vez, búsqueda incluida: cada una embebe la consulta en la CPU de la Pi.
+ESPERA_MODELO = 240  # segundos que una consulta hace fila para redactar; corre aparte, nadie espera en el POST
+# Búsquedas a la vez: cada una embebe la consulta en la CPU de la Pi. El turno se suelta al terminar la
+# búsqueda, no la redacción.
 _en_proceso = threading.BoundedSemaphore(2)
-ESPERA = 30  # segundos que una pregunta espera turno antes de recibir 503
+ESPERA = 30  # segundos que una consulta espera turno de búsqueda antes de recibir 503
 
 
 def _un_turno(llamar):
     def turno(tarea: str, archivo: str) -> dict:
-        if not _modelo.acquire(blocking=False):
+        if not _modelo.acquire(timeout=ESPERA_MODELO):
             raise BakerCaido(OCUPADO)
         try:
             return llamar(tarea, archivo)
@@ -496,16 +537,23 @@ class Trabajos:
 
 
 def _trabajar(app_state, t: Trabajo) -> None:
+    turno = [True]  # el de búsqueda, que tomó el POST
+
+    def soltar():
+        if turno.pop() if turno else False:
+            _en_proceso.release()
+
+    def avisar(r):
+        t.respuesta = r
+        soltar()  # la búsqueda terminó; la redacción hace su propia fila
     try:
         with closing(almacen.abrir(app_state.db)) as con:
-            r = pg.preguntar(con, t.pregunta, t.fecha or None, _un_turno(app_state.llamar),
-                             avisar=lambda r: setattr(t, "respuesta", r))
-        t.respuesta = r
+            t.respuesta = pg.preguntar(con, t.pregunta, t.fecha or None, _un_turno(app_state.llamar), avisar=avisar)
     except Exception:  # noqa: BLE001 (un hilo sin manejo deja la página esperando para siempre)
         registro.exception("consulta fallida")
         t.respuesta = pg.Respuesta(fallo="error interno", pasajes=t.respuesta.pasajes if t.respuesta else [])
     finally:
-        _en_proceso.release()
+        soltar()
         t.listo.set()
 
 
