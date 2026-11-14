@@ -153,8 +153,14 @@ function rotacion(yaw, pitch) {  // Ry(yaw) · Rx(pitch), por columnas como la p
   return new Float32Array([cy, 0, -sy, sy * sp, cp, cy * sp, sy * cp, -sp, cy * cp]);
 }
 
-// La estatua: barre en diagonal de un tope al otro y cambia por la siguiente.
-const BARRIDO = 10000, CAMBIO = 700, YAW = .8, PITCH = .22;
+// La estatua barre en diagonal y va frenando; antes de detenerse se borra y entra la siguiente, que
+// arranca con velocidad en sentido contrario. Nunca se queda quieta. FRENO: qué tanto frena (a 0.75,
+// la velocidad al cambiar es la cuarta parte de la inicial).
+const BARRIDO = 10000, CAMBIO = 900, YAW = .8, PITCH = .22, FRENO = .75;
+const avance = (t) => {  // 0..1 a lo largo del barrido, con velocidad que baja en línea recta
+  const u = Math.min(Math.max(t, 0), 1 / FRENO);
+  return (1 - (1 - FRENO * u) ** 2) / (1 - (1 - FRENO) ** 2);
+};
 
 async function montarEscena(lienzo) {
   const urls = lienzo.dataset.mallas.split(" ");
@@ -204,7 +210,7 @@ async function montarEscena(lienzo) {
     boton.hidden = quieto.matches;
     boton.addEventListener("click", () => {
       if (pausa === null) { pausa = performance.now(); boton.textContent = "Reanudar el giro"; }
-      else { inicio += performance.now() - pausa; pausa = null; boton.textContent = "Pausar el giro"; e.pedir(); }
+      else { inicio += performance.now() - pausa; pausa = null; boton.textContent = "Detener el giro"; e.pedir(); }
       boton.setAttribute("aria-pressed", String(pausa !== null));
     });
   }
@@ -226,12 +232,13 @@ async function montarEscena(lienzo) {
 
   e.dibujar = (ahora) => {
     const t = quieto.matches ? .3 : (Math.max(pausa ?? ahora, inicio) - inicio) / BARRIDO;
-    // ida suave de un tope al otro (coseno), en diagonal: yaw y pitch a la vez
-    const s = -Math.cos(Math.PI * Math.min(t, 1));  // de -1 a 1
+    // en diagonal (yaw y pitch a la vez), de un lado al otro, frenando
+    const s = 2 * avance(t) - 1;
     const yaw = sentido * s * YAW, pitch = -sentido * s * PITCH + .05;
-    const fin = Math.max(0, (t - 1) * BARRIDO / CAMBIO);  // 0..1 mientras se borra la tinta
-    const entrada = Math.min(1, t * BARRIDO / CAMBIO);
-    const a = quieto.matches ? 1 : Math.min(entrada, 1 - Math.min(fin, 1));
+    const c = CAMBIO / BARRIDO;
+    const salida = urls.length > 1 ? Math.min(1, Math.max(0, (t - (1 - c)) / c)) : 0;  // la tinta se borra al final, aún girando
+    const entrada = Math.min(1, t / c);
+    const a = quieto.matches ? 1 : Math.min(entrada, 1 - salida);
     const meta = performance.now() < luzPuntero.hasta ? luzPuntero.meta : LUZ;
     for (let k = 0; k < 3; k++) luz[k] += (meta[k] - luz[k]) * (quieto.matches ? 1 : .05);
 
@@ -252,7 +259,7 @@ async function montarEscena(lienzo) {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, malla.ib);
     gl.drawElements(gl.TRIANGLES, malla.ni, gl.UNSIGNED_SHORT, 0);
 
-    if (fin >= 1 && !cambiando && urls.length > 1) siguiente();
+    if (salida >= 1 && !cambiando) siguiente();
     else if (e.seguir() && pausa === null) e.pedir();
   };
   e.pedir();

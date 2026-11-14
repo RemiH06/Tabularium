@@ -10,7 +10,7 @@ def test_novella_con_diff_cita_y_aviso(db):
     r = TestClient(crear_app(db)).get("/novellae", params={"desde": "2024-01-01", "hasta": "2024-12-31"})
     assert r.status_code == 200
     assert "<del>viejo.</del>" in r.text and "<ins>nuevo.</ins>" in r.text
-    assert "LDP, art. 2o" in r.text and "no sustituye a un abogado" in r.text
+    assert "LDP, art. 2o" in r.text and "no sustituye la asesoría" in r.text
     assert all(r.headers[k] == v for k, v in CABECERAS.items())
 
 
@@ -52,8 +52,8 @@ def test_portada(db):
     csp = r.headers["content-security-policy"]
     assert 'src="/estatico/portada.js?v=' in r.text and "script-src 'self'" in csp and "connect-src 'self'" in csp
     assert ' style="' not in r.text  # la CSP bloquea los estilos en línea
-    assert "Lo que cambió hace poco" in r.text and '<li class="revela">' in r.text and "no sustituye a un abogado" in r.text
-    assert "Pregúntale a Gayo" in r.text and 'class="pausa' in r.text  # WCAG 2.2.2: lo que se mueve solo se puede pausar
+    assert "Publicaciones recientes en el DOF" in r.text and '<li class="revela">' in r.text and "no sustituye la asesoría" in r.text
+    assert "Consultas a Gayo" in r.text and 'class="pausa' in r.text  # WCAG 2.2.2: lo que se mueve solo se puede pausar
     for archivo, *_ in ESTATUAS + MONEDAS:  # toda pieza de la portada existe, con sus imágenes fijas de respaldo
         for sufijo in ("-claro", "-oscuro"):
             assert (ESTATICO / "piezas" / f"{archivo}{sufijo}.webp").exists()
@@ -117,14 +117,14 @@ def test_preguntar_responde_con_citas(db):
 
 def test_preguntar_calla_sin_citas_validas(db):
     r = _preguntar(TestClient(crear_app(db, _llamar(["algo que la ley no dice"]))))
-    assert "no responde" in r.text and "<blockquote>" not in r.text and "El artículo 2o" not in r.text
+    assert "se abstiene de responder" in r.text and "<blockquote>" not in r.text and "El artículo 2o" not in r.text
 
 
 def test_preguntar_con_el_baker_caido_muestra_la_busqueda(db):
     def caido(tarea, archivo):
         raise BakerCaido("Pixilate apagada")
     r = _preguntar(TestClient(crear_app(db, caido)))
-    assert "No hay respuesta redactada" in r.text and "LDP, art. 2o" in r.text
+    assert "No fue posible redactar una respuesta" in r.text and "LDP, art. 2o" in r.text
 
 
 def test_preguntar_valida_la_entrada(db):
@@ -160,7 +160,7 @@ def test_una_redaccion_a_la_vez(db):
         r = _preguntar(TestClient(crear_app(db, _llamar([NUEVO]))))
     finally:
         pagina._modelo.release()
-    assert "atendiendo otra pregunta" in r.text and "LDP, art. 2o" in r.text
+    assert "atendiendo otra consulta" in r.text and "LDP, art. 2o" in r.text
 
 
 # Auditoría de seguridad (2026-11-13).
@@ -222,4 +222,38 @@ def test_sin_turno_responde_503(db, monkeypatch):
     finally:
         for _ in tomados:
             pagina._en_proceso.release()
-    assert r.status_code == 503 and "intenta en un momento" in r.text
+    assert r.status_code == 503 and "intente de nuevo en un momento" in r.text
+
+
+# Consultas en segundo plano (2026-11-13): Cloudflare corta a los 100 s y el modelo puede tardar más.
+def test_consulta_en_curso_se_actualiza_sola(db, caplog):
+    import logging
+    import threading
+    from tabularium import pagina
+    soltar = threading.Event()
+
+    def lento(tarea, archivo):
+        soltar.wait(10)
+        return {"citas": [NUEVO], "no_encontrado": False, "respuesta": "El artículo 2o de la LDP dice texto nuevo."}
+    app = crear_app(db, lento)
+    app.state.espera_inicial = 0
+    cliente = TestClient(app)
+    caplog.set_level(logging.INFO)
+    r = cliente.post("/preguntar", data={"pregunta": "texto nuevo, consulta 7319", "fecha": "2024-05-01"},
+                     follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/preguntar/")
+    en_curso = cliente.get(r.headers["location"])
+    assert en_curso.status_code == 200 and 'http-equiv="refresh"' in en_curso.text and "redactando" in en_curso.text
+    soltar.set()
+    clave = r.headers["location"].rsplit("/", 1)[1]
+    assert app.state.trabajos.ver(clave).listo.wait(10)
+    listo = cliente.get(r.headers["location"])
+    assert "<blockquote>Artículo 2o.- Texto nuevo.</blockquote>" in listo.text and 'http-equiv="refresh"' not in listo.text
+    assert "7319" not in caplog.text  # al registro van conteos, nunca la consulta
+    assert pagina._en_proceso.acquire(blocking=False)  # el turno se devolvió
+    pagina._en_proceso.release()
+
+
+def test_consulta_desconocida(db):
+    r = TestClient(crear_app(db)).get("/preguntar/no-existe")
+    assert r.status_code == 404 and "ya no está disponible" in r.text

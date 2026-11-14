@@ -9,6 +9,8 @@ from __future__ import annotations
 import functools
 import hashlib
 import ipaddress
+import logging
+import secrets
 import json
 import mimetypes
 import os
@@ -17,6 +19,7 @@ import threading
 import time
 from collections import deque
 from contextlib import closing
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from html import escape
 from pathlib import Path
@@ -26,7 +29,7 @@ from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -47,16 +50,17 @@ CABECERAS = {
     # Por HTTP local el navegador la ignora; por el túnel (HTTPS) obliga a no volver a HTTP.
     "Strict-Transport-Security": "max-age=31536000",
 }
-AVISO = ("Tabularium no sustituye a un abogado ni a un contador que firme. El diff es el texto literal de cada "
-         "versión; las etiquetas ▲ ▼ ◆ y los resúmenes marcados como generados los escribe un modelo, y sí que "
-         "pueden equivocarse.")
-OCUPADO = "Gayo está atendiendo otra pregunta; intenta en un minuto"
+AVISO = ("Tabularium es una herramienta de consulta y no sustituye la asesoría de un abogado o de un contador "
+         "público. Los cambios se presentan con el texto literal de cada versión; las etiquetas ▲ ▼ ◆ y los resúmenes "
+         "señalados como generados son elaborados por un modelo de lenguaje y pueden contener errores.")
+OCUPADO = "Gayo está atendiendo otra consulta; intente de nuevo en un minuto"
 SIMBOLOS = {"▲": "amplía", "▼": "restringe", "◆": "aclara", "✚": "nueva", "✖": "derogada"}
 
 # Con nosniff, un tipo equivocado deja la imagen o la fuente sin cargar; no depender del sistema.
 for _tipo, _ext in (("image/webp", ".webp"), ("font/woff2", ".woff2"), ("image/svg+xml", ".svg"),
                     ("text/javascript", ".js"), ("application/octet-stream", ".malla")):
     mimetypes.add_type(_tipo, _ext)
+registro = logging.getLogger("tabularium.pagina")  # solo conteos y motivos, nunca la consulta
 CLASES = {"▲": "amplia", "▼": "restringe", "◆": "aclara", "✚": "nueva", "✖": "derogada"}
 ESTATICO = Path(__file__).parent / "estatico"
 # Escaneos CC0 del Musée Saint-Raymond (Toulouse), reducidos con `portada/render_estatuas.py`.
@@ -67,8 +71,8 @@ ESTATUAS = [  # (archivo, pie)
 ]
 MONEDAS = [("aureo-augusto", "Áureo de Augusto", "Moneda de oro con el perfil de Augusto, impresa con trama de puntos."),
            ("sestercio-trajano", "Sestercio de Trajano", "Moneda de bronce con el busto de Trajano, impresa con trama de puntos.")]
-CREDITO = ("Las estatuas y las monedas son escaneos del Musée Saint-Raymond de Toulouse, en dominio público (CC0), "
-           "impresos aquí con un shader propio.")
+CREDITO = ("Las esculturas y monedas reproducidas son digitalizaciones del Musée Saint-Raymond de Toulouse, "
+           "de dominio público (CC0).")
 # La T de la tablilla: el logo y el ícono de la pestaña.
 LOGO = ('<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="2" fill="none" '
         'stroke="currentColor" stroke-width="1.4"/><path fill="currentColor" d="M8 8h16v5h-1.6c-.3-1.6-1-2.4-2.6-2.4h-1.6V22'
@@ -108,9 +112,9 @@ def _cambio(c: dict) -> str:
         tramos = {"=": "{}", "-": "<del>{}</del>", "+": "<ins>{}</ins>"}
         partes.append('<p class="diff">' + "".join(tramos[op].format(escape(t)) for op, t in c["diff"]) + "</p>")
     elif c["texto"]:
-        partes.append(f'<details><summary>Texto de la unidad nueva</summary><p class="texto">{escape(c["texto"])}</p></details>')
+        partes.append(f'<details><summary>Texto de la disposición nueva</summary><p class="texto">{escape(c["texto"])}</p></details>')
     if c["junta"]:
-        partes.append(f'<p class="suave">El cambio junta también: {escape(", ".join(c["junta"]))}.</p>')
+        partes.append(f'<p class="suave">Esta versión incorpora también: {escape(", ".join(c["junta"]))}.</p>')
     partes.append(f'<p class="cita">{escape(c["cita"]["texto"])}. <a href="{escape(c["cita"]["fuente_url"])}">Fuente</a></p>')
     return '<div class="cambio">' + "".join(partes) + "</div>"
 
@@ -129,11 +133,11 @@ def _novella(n: dict) -> str:
               f'<p class="suave">Publicado el {escape(n["publicado_dof"])}{vigor}.{fuente}</p>']
     if n["pendiente"]:
         docs = ", ".join(d["documento"] for d in n["documentos"])
-        partes.append(f"<p>El DOF ya lo publicó y el texto todavía no está en el corpus ({escape(docs)}).</p>")
+        partes.append(f"<p>Publicado en el DOF; el texto aún no se incorpora al corpus ({escape(docs)}).</p>")
     for d in [] if n["pendiente"] else n["documentos"]:
         partes.append(f'<section><h3>{escape(d["nombre"])} ({escape(d["documento"])})</h3>')
         if d["nuevo"]:
-            partes.append(f'<p>Documento nuevo: {d["unidades"]} unidades, vigente desde {escape(d["vigente_desde"])}.</p>')
+            partes.append(f'<p>Documento nuevo: {d["unidades"]} disposiciones, vigente desde {escape(d["vigente_desde"])}.</p>')
         else:
             partes.extend(_cambio(c) for c in d["cambios"])
         partes.append("</section>")
@@ -152,9 +156,12 @@ def _logo() -> str:
     return f'<a class="logo" href="/" aria-label="Tabularium, inicio">{LOGO}</a>'
 
 
-def _pagina(titulo: str, cuerpo: str, actual: str = "", descripcion: str = "", portada: bool = False) -> str:
+def _pagina(titulo: str, cuerpo: str, actual: str = "", descripcion: str = "", portada: bool = False,
+            refrescar: int = 0) -> str:
     """La portada trae su propio encabezado (logo y enlaces dentro de la composición); las demás, la barra."""
     meta = f'<meta name="description" content="{escape(descripcion)}">' if descripcion else ""
+    if refrescar:  # sin JavaScript: la página de una consulta en curso se vuelve a pedir sola
+        meta += f'<meta http-equiv="refresh" content="{refrescar}">'
     js = f'<script type="module" src="{_e("portada.js")}"></script>' if portada else ""
     contenido = (f'<main id="contenido">{cuerpo}</main>' if portada else
                  f'<header class="barra">{_logo()}{_enlaces(actual)}</header><main id="contenido" class="interna">{cuerpo}</main>')
@@ -230,15 +237,15 @@ def _recientes(lista: list[dict], cuantos: int = 4) -> list[dict]:
         base = {"fecha": n["publicado_dof"], "enlace": enlace}
         if n["pendiente"]:
             docs = ", ".join(d["documento"] for d in n["documentos"])
-            renglones.append({**base, "efecto": None, "generado": False, "donde": f"{docs}: ya salió en el DOF",
+            renglones.append({**base, "efecto": None, "generado": False, "donde": f"{docs}: publicado en el DOF",
                               "frase": n["titulo"] or "Publicación del DOF"})
         for d in [] if n["pendiente"] else n["documentos"]:
             if d.get("nuevo"):
                 renglones.append({**base, "efecto": "✚", "generado": False, "donde": d["documento"],
-                                  "frase": f'Documento nuevo con {d["unidades"]} unidades.'})
+                                  "frase": f'Documento nuevo con {d["unidades"]} disposiciones.'})
             for c in d.get("cambios", []):
                 frase = (_oracion(c["resumen"]) if c["resumen"] else
-                         "Cambió el texto; la glosa todavía no está." if c["diff"] is not None else "Unidad nueva.")
+                         "Texto modificado; resumen pendiente." if c["diff"] is not None else "Disposición nueva.")
                 renglones.append({**base, "efecto": c["efecto"], "generado": c["efecto_generado"],
                                   "donde": ", ".join(c["cita"]["texto"].split(", ")[:2]), "frase": frase})
         if len(renglones) >= cuantos:
@@ -267,43 +274,45 @@ def _escena() -> str:
     mallas = " ".join(_e(f"piezas/{a}.malla") for a, _ in orden)
     pies = escape(json.dumps([p for _, p in orden], ensure_ascii=False))
     primera = f"piezas/{orden[0][0]}"
-    alt = "Estatua romana de mármol, impresa con trama de puntos, que gira despacio y cambia cada diez segundos."
+    alt = "Escultura romana de mármol, reproducida con trama de puntos, que gira lentamente y cambia cada diez segundos."
     return (f'<figure class="escena"><div class="lienzo" data-mallas="{mallas}" data-pies="{pies}" '
             f'data-fija-claro="{_e(primera + "-claro.webp")}" data-fija-oscuro="{_e(primera + "-oscuro.webp")}" data-celda="3.6" '
             f'role="img" aria-label="{alt}"><noscript><img src="{_e(primera + "-claro.webp")}" alt=""></noscript></div>'
             f'<figcaption><span>{escape(orden[0][1])}</span>'
-            f'<button class="pausa discreto" type="button" aria-pressed="false" hidden>Pausar el giro</button></figcaption></figure>')
+            f'<button class="pausa discreto" type="button" aria-pressed="false" hidden>Detener el giro</button></figcaption></figure>')
 
 
 def portada(request: Request) -> HTMLResponse:
     lista, documentos = _todas(request.app.state.db)
     n_docs, n_unidades, n_versiones, ultima = _cache["cifras"]
-    renglones = "".join(_renglon(r) for r in _recientes(lista)) or "<li>Todavía no hay publicaciones.</li>"
+    renglones = "".join(_renglon(r) for r in _recientes(lista)) or "<li>Sin publicaciones registradas.</li>"
     docs = "".join(f"<li><b>{escape(i)}</b><span>{escape(n)}</span></li>" for i, n in documentos)
     cuerpo = (
         f'<section class="portada">{_logo()}{_enlaces("/")}'
         f'<div class="encabezado"><h1 class="titulo">Tabularium</h1><hr class="filete">'
-        f'<p class="bajada">Las leyes fiscales de México, versión por versión desde 2024 (porque lo que te toca pagar '
-        f'depende del año, no de cómo amaneció la ley hoy).</p></div>'
-        f'<div class="recientes"><h2>Lo que cambió hace poco</h2><ol class="cambios">{renglones}</ol>'
-        f'<a class="todas" href="/novellae">Todas las Novellae, con el texto que se quitó y el que entró</a></div>'
+        f'<p class="bajada">Legislación fiscal federal de México, con cada versión conservada desde el 1 de enero de '
+        f'2024 y su vigencia acreditada por el decreto que la reformó.</p></div>'
+        f'<div class="recientes"><h2>Publicaciones recientes en el DOF</h2><ol class="cambios">{renglones}</ol>'
+        f'<a class="todas" href="/novellae">Consultar todas las Novellae, con el texto suprimido y el incorporado</a></div>'
         f'{_escena()}</section>'
-        f'<section class="seccion gayo" aria-labelledby="titulo-gayo"><div><h2 id="titulo-gayo">Pregúntale a Gayo</h2>'
-        f'<p>Gayo escribió el libro con que se enseñaba derecho en Roma. El de aquí es más modesto: contesta solo con lo '
-        f'que puede citar (artículo, ley y la versión vigente en la fecha que elijas), y si no lo encuentra en el corpus, '
-        f'prefiere callarse antes que inventar.</p></div>{_formulario()}</section>'
+        f'<section class="seccion gayo" aria-labelledby="titulo-gayo"><div><h2 id="titulo-gayo">Consultas a Gayo</h2>'
+        f'<p>Gayo responde consultas generales sobre la legislación fiscal federal. Cada afirmación se sustenta en una '
+        f'cita textual (ordenamiento, artículo y versión vigente en la fecha de referencia), verificada contra el corpus '
+        f'antes de mostrarse. Cuando no encuentra fundamento citable, se abstiene de responder.</p>'
+        f'<p class="chica">Su nombre alude al jurista romano autor de las <i>Instituciones</i>.</p></div>{_formulario()}</section>'
         f'<section id="corpus" class="seccion erario" aria-labelledby="titulo-corpus"><div>'
-        f'<h2 id="titulo-corpus">Qué hay en el archivo</h2><dl class="cifras">'
-        f'<div><dt>documentos</dt><dd>{n_docs}</dd></div><div><dt>artículos, reglas y secciones</dt><dd>{n_unidades:,}</dd></div>'
+        f'<h2 id="titulo-corpus">Contenido del corpus</h2><dl class="cifras">'
+        f'<div><dt>documentos</dt><dd>{n_docs}</dd></div><div><dt>artículos, reglas y apartados</dt><dd>{n_unidades:,}</dd></div>'
         f'<div><dt>versiones guardadas</dt><dd>{n_versiones:,}</dd></div></dl>'
-        f'<p class="suave">Nada se sobrescribe: cada versión se queda con su vigencia y con el decreto que la cambió, así '
-        f'que se puede preguntar por 2024 sin que conteste la ley de hoy. Última publicación incorporada: '
+        f'<p class="suave">Ninguna versión se sobrescribe: cada una conserva su periodo de vigencia y el decreto que la '
+        f'modificó, de modo que una consulta referida a 2024 se responde con el texto vigente en 2024. Última '
+        f'publicación incorporada: '
         f'{_fecha_corta(ultima) if ultima else "ninguna"}.</p>'
         f'<ul class="documentos">{docs}</ul></div>'
         f'<div class="monedas">{"".join(_moneda(*m) for m in MONEDAS)}</div></section>')
     return _respuesta(_pagina("Tabularium", cuerpo, "/", portada=True, descripcion=(
-        "Las leyes fiscales de México versión por versión desde 2024, con cada reforma del DOF anunciada artículo por "
-        "artículo y un asistente, Gayo, que solo responde con lo que puede citar.")))
+        "Legislación fiscal federal de México versionada desde 2024 (LISR, CFF, LIVA, RMF y anexos), con las reformas "
+        "publicadas en el DOF y consultas respondidas con citas textuales.")))
 
 
 def novellae_pagina(request: Request) -> HTMLResponse:
@@ -313,7 +322,7 @@ def novellae_pagina(request: Request) -> HTMLResponse:
         fin = date.fromisoformat(hasta) if hasta else date.today()
         inicio = date.fromisoformat(desde) if desde else fin - timedelta(90)
     except (ValueError, OverflowError):  # OverflowError: "0001-01-01" menos 90 días
-        return _respuesta(_pagina("Tabularium", "<h1>Novellae</h1><p>Esa fecha no es válida: usa AAAA-MM-DD.</p>", "/novellae"), 400)
+        return _respuesta(_pagina("Tabularium", "<h1>Novellae</h1><p>Fecha no válida; use el formato AAAA-MM-DD.</p>", "/novellae"), 400)
     lista, documentos = _todas(request.app.state.db)
     elegido = documento_de(documento, fin.isoformat()) if documento else None
     lista = _filtrar(lista, inicio.isoformat(), fin.isoformat(), elegido)
@@ -324,10 +333,11 @@ def novellae_pagina(request: Request) -> HTMLResponse:
               f'<label>Desde<input type="date" name="desde" min="2024-01-01" value="{escape(desde or "")}"></label>'
               f'<label>Hasta<input type="date" name="hasta" min="2024-01-01" value="{escape(hasta or "")}"></label>'
               f'<button type="submit">Filtrar</button></form>')
-    rango = "" if desde or hasta else '<p class="suave">Últimos 90 días.</p>'
-    cuerpo = "".join(_novella(n) for n in lista) or "<p>No hay publicaciones en ese rango.</p>"
-    intro = ('<h1>Novellae</h1><p class="bajada">Cada publicación del DOF que toca el corpus, con el texto literal que '
-             'se quitó y el que entró. Las etiquetas y los resúmenes los escribe un modelo (van marcados, por si acaso).</p>')
+    rango = "" if desde or hasta else '<p class="suave">Publicaciones de los últimos 90 días.</p>'
+    cuerpo = "".join(_novella(n) for n in lista) or "<p>No hay publicaciones en el periodo seleccionado.</p>"
+    intro = ('<h1>Novellae</h1><p class="bajada">Cada publicación del DOF que modifica el corpus, con el texto literal '
+             'suprimido y el incorporado. Las etiquetas y los resúmenes son generados por un modelo de lenguaje y se '
+             'identifican como tales.</p>')
     return _respuesta(_pagina("Tabularium: Novellae", intro + filtro + rango + cuerpo, "/novellae",
                               descripcion="Las reformas fiscales del DOF, artículo por artículo, con el diff literal."))
 
@@ -395,16 +405,16 @@ def _mismo_sitio(request: Request) -> bool:
     return not origen or urlsplit(origen).netloc == request.headers.get("host")
 
 
-ALCANCE = ("Gayo responde solo con LISR, CFF, LIVA, la RMF y sus anexos, y cita cada pasaje. Si no lo puede citar, "
-           "no responde. Tu pregunta no se guarda.")
+ALCANCE = ("Gayo responde únicamente con base en la LISR, el CFF, la LIVA, la RMF y sus anexos, y cita cada pasaje. "
+           "Sin fundamento citable, no emite respuesta. Las consultas no se almacenan.")
 
 
 def _formulario(pregunta: str = "", fecha: str = "") -> str:
-    return (f'<form class="preguntar" method="post" action="/preguntar"><label>Tu pregunta<textarea name="pregunta" '
-            f'rows="4" maxlength="{pg.LARGO_MAXIMO}" required placeholder="¿Qué porcentaje de una computadora se puede deducir?">'
+    return (f'<form class="preguntar" method="post" action="/preguntar"><label>Consulta<textarea name="pregunta" '
+            f'rows="4" maxlength="{pg.LARGO_MAXIMO}" required placeholder="¿Qué porcentaje de deducción corresponde al equipo de cómputo?">'
             f'{escape(pregunta)}</textarea></label><div class="fila">'
-            f'<label>Fecha del ejercicio<input type="date" name="fecha" min="2024-01-01" value="{escape(fecha)}"></label>'
-            f'<button type="submit">Preguntar</button></div><p class="suave chica">{ALCANCE}</p></form>')
+            f'<label>Fecha de referencia<input type="date" name="fecha" min="2024-01-01" value="{escape(fecha)}"></label>'
+            f'<button type="submit">Consultar</button></div><p class="suave chica">{ALCANCE}</p></form>')
 
 
 def _cita(c: dict) -> str:
@@ -416,64 +426,135 @@ def _resultado(r: pg.Respuesta) -> str:
         citas = "".join(f'<li><blockquote>{escape(c.texto)}</blockquote><p class="cita">{_cita(c.cita)}</p></li>'
                         for c in r.citas)
         return (f'<section class="respuesta"><p>{escape(r.texto)} <span class="generado">generado</span></p>'
-                f'<p class="suave">Lo redactó Gayo, un modelo que corre en casa. Cada cita se verificó letra por letra '
-                f'contra el texto vigente en la fecha.</p><ol>{citas}</ol></section>')
+                f'<p class="suave">Respuesta redactada por Gayo, un modelo de lenguaje ejecutado localmente. Cada cita '
+                f'fue verificada textualmente contra la versión vigente en la fecha de referencia.</p><ol>{citas}</ol></section>')
     if r.fallo:
         # El detalle (stderr del Baker, rutas) va a journald, no a quien visita.
-        motivo = OCUPADO if r.fallo == OCUPADO else "Gayo no está disponible ahorita"
-        lista = "".join(f'<li class="cita">{_cita(p["cita"])}</li>' for p in r.pasajes)
-        return (f'<section class="respuesta"><p>No hay respuesta redactada ahora: {motivo}.</p>'
-                f'<p>Estos son los artículos y reglas que encontró la búsqueda:</p><ol>{lista}</ol></section>')
-    return ('<section class="respuesta"><p>El corpus no responde esto con citas que se puedan verificar, así que '
-            'Gayo no contesta (callar es mejor que inventarse un artículo).</p></section>')
+        motivo = OCUPADO if r.fallo == OCUPADO else "Gayo no está disponible en este momento"
+        return (f'<section class="respuesta"><p>No fue posible redactar una respuesta: {motivo}.</p>'
+                f'{_pasajes(r)}</section>')
+    return ('<section class="respuesta"><p>No se encontró fundamento citable en el corpus para esta consulta; '
+            'Gayo se abstiene de responder.</p></section>')
 
 
-CABEZA_PREGUNTAR = ('<h1>Pregúntale a Gayo</h1><p class="bajada">Una pregunta general sobre la ley fiscal federal. '
-                    'Gayo cita cada pasaje en la versión vigente en la fecha que elijas, y si no puede citarlo, no contesta.</p>')
+def _pasajes(r: pg.Respuesta) -> str:
+    if not r.pasajes:
+        return ""
+    lista = "".join(f'<li class="cita">{_cita(p["cita"])}</li>' for p in r.pasajes)
+    return f'<p>Disposiciones localizadas por la búsqueda:</p><ol>{lista}</ol>'
 
 
-def _preguntar(cuerpo: str, estado: int = 200) -> HTMLResponse:
-    return _respuesta(_pagina("Tabularium: Gayo", CABEZA_PREGUNTAR + cuerpo, "/preguntar"), estado)
+CABEZA_PREGUNTAR = ('<h1>Consultas a Gayo</h1><p class="bajada">Consultas generales sobre la legislación fiscal federal, '
+                    'respondidas con citas textuales de la versión vigente en la fecha de referencia. Cuando no '
+                    'encuentra fundamento citable, Gayo se abstiene de responder.</p>')
+
+
+def _preguntar(cuerpo: str, estado: int = 200, refrescar: int = 0) -> HTMLResponse:
+    return _respuesta(_pagina("Tabularium: Gayo", CABEZA_PREGUNTAR + cuerpo, "/preguntar", refrescar=refrescar), estado)
 
 
 def preguntar_get(request: Request) -> HTMLResponse:
     return _preguntar(_formulario())
 
 
-async def preguntar_post(request: Request) -> HTMLResponse:
+# Una consulta tarda de segundos a un par de minutos (el modelo corre en Pixilate), y Cloudflare corta
+# toda petición a los 100 s. Por eso la consulta corre aparte y tiene su propia página, que se recarga
+# sola hasta que hay respuesta. La pregunta vive solo en memoria y solo mientras dura (RNF-10).
+VIDA = 900  # segundos que se conserva una consulta terminada
+MAXIMO_TRABAJOS = 200
+ESPERA_INICIAL = 4.0  # lo que el POST espera antes de redirigir: lo rápido (callar, Baker caído) sale directo
+
+
+@dataclass
+class Trabajo:
+    pregunta: str
+    fecha: str
+    creado: float = field(default_factory=time.monotonic)
+    respuesta: pg.Respuesta | None = None  # con pasajes en cuanto los hay
+    listo: threading.Event = field(default_factory=threading.Event)
+
+
+class Trabajos:
+    def __init__(self):
+        self.todos: dict[str, Trabajo] = {}
+        self.candado = threading.Lock()
+
+    def nuevo(self, pregunta: str, fecha: str) -> tuple[str, Trabajo]:
+        with self.candado:
+            ahora = time.monotonic()
+            self.todos = {k: t for k, t in self.todos.items() if ahora - t.creado < VIDA}
+            while len(self.todos) >= MAXIMO_TRABAJOS:  # el más viejo primero
+                self.todos.pop(next(iter(self.todos)))
+            clave = secrets.token_urlsafe(16)  # imposible de adivinar: solo quien preguntó ve su consulta
+            self.todos[clave] = t = Trabajo(pregunta, fecha)
+            return clave, t
+
+    def ver(self, clave: str) -> Trabajo | None:
+        with self.candado:
+            t = self.todos.get(clave)
+            return t if t and time.monotonic() - t.creado < VIDA else None
+
+
+def _trabajar(app_state, t: Trabajo) -> None:
+    try:
+        with closing(almacen.abrir(app_state.db)) as con:
+            r = pg.preguntar(con, t.pregunta, t.fecha or None, _un_turno(app_state.llamar),
+                             avisar=lambda r: setattr(t, "respuesta", r))
+        t.respuesta = r
+    except Exception:  # noqa: BLE001 (un hilo sin manejo deja la página esperando para siempre)
+        registro.exception("consulta fallida")
+        t.respuesta = pg.Respuesta(fallo="error interno", pasajes=t.respuesta.pasajes if t.respuesta else [])
+    finally:
+        _en_proceso.release()
+        t.listo.set()
+
+
+async def preguntar_post(request: Request) -> Response:
     cuerpo = b""
     async for trozo in request.stream():
         cuerpo += trozo
         if len(cuerpo) > CUERPO_MAXIMO:
-            return _preguntar("<p>La pregunta es demasiado larga.</p>", 413)
+            registro.info("consulta rechazada motivo=larga")
+            return _preguntar("<p>La consulta excede la extensión permitida.</p>", 413)
     datos = parse_qs(cuerpo.decode("utf-8", "replace"))
     pregunta, fecha = (datos.get(k, [""])[0].strip() for k in ("pregunta", "fecha"))
-    if not 0 < len(" ".join(pregunta.split())) <= pg.LARGO_MAXIMO:
-        return _preguntar(_formulario(pregunta[:pg.LARGO_MAXIMO], fecha)
-                          + f"<p>La pregunta debe tener entre 1 y {pg.LARGO_MAXIMO} caracteres.</p>", 400)
+    try:
+        pg.normalizar(pregunta, fecha or None)
+    except ValueError as e:
+        registro.info("consulta rechazada motivo=invalida")
+        return _preguntar(_formulario(pregunta[:pg.LARGO_MAXIMO], fecha) + f"<p>{escape(str(e)).capitalize()}.</p>", 400)
     if not _mismo_sitio(request):
-        return _preguntar("<p>La pregunta debe enviarse desde esta página.</p>", 403)
+        registro.info("consulta rechazada motivo=otro_sitio")
+        return _preguntar("<p>La consulta debe enviarse desde este sitio.</p>", 403)
     ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
     if not request.app.state.limite.permitir(_llave(ip)):
+        registro.info("consulta rechazada motivo=limite")
         return _preguntar(_formulario(pregunta, fecha)
-                          + "<p>Demasiadas preguntas por ahora; intenta en unos minutos.</p>", 429)
+                          + "<p>Se alcanzó el límite de consultas; intente de nuevo en unos minutos.</p>", 429)
+    if not await run_in_threadpool(_en_proceso.acquire, True, ESPERA):
+        registro.info("consulta rechazada motivo=ocupado")
+        return _preguntar(_formulario(pregunta, fecha)
+                          + "<p>Hay demasiadas consultas en curso; intente de nuevo en un momento.</p>", 503)
+    clave, t = request.app.state.trabajos.nuevo(pregunta, fecha)
+    threading.Thread(target=_trabajar, args=(request.app.state, t), daemon=True).start()
+    await run_in_threadpool(t.listo.wait, request.app.state.espera_inicial)
+    return RedirectResponse(f"/preguntar/{clave}", status_code=303)
 
-    def responder() -> pg.Respuesta | None:
-        if not _en_proceso.acquire(timeout=ESPERA):
-            return None
-        try:
-            with closing(almacen.abrir(request.app.state.db)) as con:
-                return pg.preguntar(con, pregunta, fecha or None, _un_turno(request.app.state.llamar))
-        finally:
-            _en_proceso.release()
-    try:
-        r = await run_in_threadpool(responder)
-        if r is None:
-            return _preguntar(_formulario(pregunta, fecha)
-                              + "<p>Hay muchas preguntas en este momento; intenta en un momento.</p>", 503)
-    except ValueError as e:
-        return _preguntar(_formulario(pregunta, fecha) + f"<p>{escape(str(e))}.</p>", 400)
-    return _preguntar(_formulario(pregunta, fecha) + _resultado(r))
+
+def consulta_get(request: Request) -> HTMLResponse:
+    t = request.app.state.trabajos.ver(request.path_params["clave"])
+    if t is None:
+        return _preguntar('<p>Esta consulta ya no está disponible: las consultas se conservan quince minutos y no '
+                          'se almacenan. Puede formularla de nuevo.</p>' + _formulario(), 404)
+    pregunta = f'<p class="suave">Consulta: «{escape(t.pregunta)}»{" (referida al " + escape(t.fecha) + ")" if t.fecha else ""}</p>'
+    if t.listo.is_set():
+        return _preguntar(pregunta + _resultado(t.respuesta) + _formulario(t.pregunta, t.fecha))
+    espera = int(time.monotonic() - t.creado)
+    aviso = ("Gayo está redactando la respuesta; esta página se actualiza sola." if espera < 60 else
+             "La redacción está tardando más de lo habitual; esta página se sigue actualizando.")
+    avance = _pasajes(t.respuesta) if t.respuesta else '<p class="suave">Buscando en el corpus…</p>'
+    return _preguntar(f'{pregunta}<section class="respuesta" aria-live="polite"><p>{aviso}</p>{avance}</section>',
+                      refrescar=4)
 
 
 class Cabeceras:
@@ -499,8 +580,10 @@ def crear_app(db: Path | None = None, llamar=pg._bake) -> Cabeceras:
     app = Starlette(routes=[Route("/", portada), Route("/novellae", novellae_pagina),
                             Route("/preguntar", preguntar_get, methods=["GET"]),
                             Route("/preguntar", preguntar_post, methods=["POST"]),
+                            Route("/preguntar/{clave}", consulta_get),
                             Mount("/estatico", StaticFiles(directory=ESTATICO), name="estatico")])
     app.state.db, app.state.llamar, app.state.limite = db or ruta_db(), llamar, Limite()
+    app.state.trabajos, app.state.espera_inicial = Trabajos(), ESPERA_INICIAL
     return Cabeceras(app)
 
 

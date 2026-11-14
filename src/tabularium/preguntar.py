@@ -124,13 +124,23 @@ def _bake(tarea: str, archivo: str) -> dict:
     return baker("run", BAKER, "-t", tarea, "-f", archivo, timeout=TIEMPO)
 
 
-def preguntar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, llamar=_bake) -> Respuesta:
-    """Lanza ValueError si la pregunta está vacía, es muy larga o la fecha no es válida."""
+def normalizar(consulta: str, fecha: str | None) -> tuple[str, str]:
+    """La pregunta sin espacios de más y la fecha resuelta. ValueError si la pregunta está vacía, es muy
+    larga o la fecha no es válida: así la página lo dice antes de poner a trabajar a nadie."""
     consulta = " ".join(consulta.split())
     if not consulta or len(consulta) > LARGO_MAXIMO:
-        raise ValueError(f"la pregunta debe tener entre 1 y {LARGO_MAXIMO} caracteres")
-    fecha = almacen._fecha(fecha)
+        raise ValueError(f"la consulta debe tener entre 1 y {LARGO_MAXIMO} caracteres")
+    return consulta, almacen._fecha(fecha)
+
+
+def preguntar(con: sqlite3.Connection, consulta: str, fecha: str | None = None, llamar=_bake,
+              avisar=None) -> Respuesta:
+    """Lanza ValueError como `normalizar`. `avisar(r)` se llama en cuanto hay pasajes, antes de redactar:
+    la página los muestra mientras el modelo trabaja."""
+    consulta, fecha = normalizar(consulta, fecha)
     r = Respuesta(pasajes=recuperar(con, consulta, fecha))
+    if avisar:
+        avisar(r)
     if not r.pasajes:
         r.callar = True
     else:
