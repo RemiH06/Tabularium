@@ -109,19 +109,29 @@ button.discreto:hover { color: var(--texto); border-color: var(--oro); backgroun
 .preguntar { display: grid; gap: .75rem; }
 .preguntar label { display: grid; gap: .35rem; font-size: .9rem; font-weight: 600; }
 .preguntar .fila { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
-.erario { display: grid; grid-template-columns: minmax(0, 1fr) 10rem; gap: 2rem 4rem; align-items: start; }
+
 .cifras { display: flex; flex-wrap: wrap; gap: 1rem 3rem; margin: 0 0 1.5rem; }
 .cifras div { display: grid; }
 .cifras dt { order: 2; color: var(--texto2); font-size: .9rem; }
 .cifras dd { margin: 0; font: 500 clamp(2rem, 1.4rem + 2vw, 3rem)/1.1 var(--titulos); }
 .documentos { columns: 2 17rem; column-gap: 2.5rem; margin: 0; padding: 0; list-style: none; font-size: .95rem; }
-.documentos li { break-inside: avoid; padding: .4rem 0; border-bottom: 1px solid var(--veta); display: flex; gap: .9rem; }
+.documentos li { break-inside: avoid; border-bottom: 1px solid var(--veta); }
+.documentos a { display: flex; gap: .9rem; padding: .5rem 0; text-decoration: none; }
+.documentos a:hover b { text-decoration: underline; text-decoration-color: var(--oro); }
 .documentos b { font-weight: 600; min-width: 7.5rem; }
-.monedas { display: grid; gap: 1.25rem; }
-.moneda { margin: 0; }
-.moneda .lienzo { position: relative; width: 100%; aspect-ratio: 1; }
-.moneda canvas, .moneda img { position: absolute; inset: 0; width: 100%; height: 100%; }
-.moneda figcaption { font-size: .8rem; color: var(--texto2); text-align: center; }
+
+/* Sellos de materia: la sigla con filete de oro; el color queda para el efecto del cambio */
+.sello { display: inline-block; font: 600 .68rem/1 var(--letra); letter-spacing: .03em; color: var(--oro-texto);
+  border: 1px solid var(--oro); border-radius: 3px; padding: .2rem .35rem; vertical-align: .1em; text-decoration: none; cursor: help; }
+
+/* Página de un documento: sus versiones */
+.versiones { list-style: none; margin: 0 0 1.5rem; padding: 0; border-top: 1px solid var(--veta); }
+.versiones li { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) auto; gap: .3rem 2rem; align-items: baseline;
+  padding: .85rem 0; border-bottom: 1px solid var(--veta); }
+.versiones .fecha { font-weight: 600; }
+.versiones .origen { color: var(--texto2); overflow-wrap: anywhere; }
+.versiones .bajar { white-space: nowrap; font-size: .9rem; }
+.atajo { flex-basis: 100%; }
 
 .revision { font-size: .8rem; color: var(--texto2); margin: -.25rem 0 .6rem; }
 .metodo dl { margin: 0; border-top: 1px solid var(--veta); }
@@ -135,7 +145,10 @@ main.interna { max-width: var(--medida); margin: 0 auto; padding: 0 1.25rem; }
 .interna > h1 { font-size: clamp(2.6rem, 1.4rem + 4vw, 4.6rem); margin: 2rem 0 .75rem; }
 .interna > .bajada { margin-bottom: 2rem; }
 .filtro { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: end; margin: 0 0 2.5rem; padding: 1rem; background: var(--fondo2); border-radius: 3px; }
-.filtro label { display: grid; gap: .3rem; font-size: .85rem; font-weight: 600; flex: 1 1 10rem; }
+.filtro label { display: grid; gap: .3rem; font-size: .85rem; font-weight: 600; flex: 1 1 10rem; min-width: 0; }
+/* Un select toma el ancho de su opción más larga y se salía de la pantalla en el teléfono */
+select, input, textarea { max-width: 100%; min-width: 0; }
+.filtro select { width: 100%; }
 .novella { border-top: 1px solid var(--texto); padding: .25rem 0 1.5rem; margin-top: 3rem; }
 .novella > h2 { margin: 1rem 0 .3rem; font-size: clamp(1.35rem, 1.1rem + 1vw, 1.9rem); }
 .novella section > h3 { font: 600 .95rem/1.4 var(--letra); color: var(--texto2); margin: 1.75rem 0 .5rem; }
@@ -144,7 +157,7 @@ main.interna { max-width: var(--medida); margin: 0 auto; padding: 0 1.25rem; }
 .diff, .texto { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 48rem; font-size: .95rem; }
 del { background: var(--quita); text-decoration: line-through var(--restringe) 1px; }
 ins { background: var(--agrega); text-decoration: none; }
-.cita { color: var(--texto2); font-size: .85rem; }
+.cita { color: var(--texto2); font-size: .85rem; overflow-wrap: anywhere; }
 .respuesta { margin: 2rem 0; max-width: 48rem; }
 .respuesta > p:first-child { font-size: 1.1rem; }
 .respuesta ol { padding-left: 1.25rem; }
@@ -159,8 +172,7 @@ footer p { margin: 0; max-width: 56rem; }
   .portada > .enlaces { position: absolute; top: 1.25rem; right: 1.25rem; left: 4.75rem; }
   .encabezado { padding-top: 1.75rem; }
   .escena .lienzo { min-height: 0; height: 58svh; flex: none; }
-  .gayo, .erario, .metodo dl > div { grid-template-columns: minmax(0, 1fr); }
-  .monedas { grid-template-columns: repeat(2, minmax(0, 9rem)); justify-content: center; }
+  .gayo, .metodo dl > div, .versiones li { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 26rem) {
   .enlaces { gap: .1rem 1.1rem; }

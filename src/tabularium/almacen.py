@@ -224,6 +224,33 @@ def versiones(con: sqlite3.Connection, documento: str, unidad: str) -> list[dict
     return [_salida(f, texto=f["texto"]) for f in filas]
 
 
+def fechas_documento(con: sqlite3.Connection, documento: str) -> list[dict]:
+    """Cada fecha en que cambió algo del documento, de la más reciente a la más vieja: cuántas unidades
+    entraron en vigor ese día y por qué publicaciones. La primera de todas es la línea base."""
+    filas = con.execute(
+        "SELECT v.vigente_desde, v.decreto, d.publicado_dof, d.titulo, COUNT(*) AS n FROM versiones v "
+        "JOIN decretos d ON d.id = v.decreto WHERE v.documento = ? "
+        "GROUP BY v.vigente_desde, v.decreto ORDER BY v.vigente_desde DESC, d.publicado_dof", (documento,)).fetchall()
+    fechas: dict[str, dict] = {}
+    for f in filas:
+        e = fechas.setdefault(f["vigente_desde"], {"vigente_desde": f["vigente_desde"], "unidades": 0, "decretos": []})
+        e["unidades"] += f["n"]
+        e["decretos"].append({"id": f["decreto"], "publicado_dof": f["publicado_dof"], "titulo": f["titulo"]})
+    return list(fechas.values())
+
+
+def texto_documento(con: sqlite3.Connection, documento: str, fecha: str) -> list[sqlite3.Row]:
+    """Las unidades del documento vigentes en `fecha`, en el orden del documento (el de la primera
+    versión de cada una) y con los transitorios al final, como en la ley. Una unidad que entró después,
+    como un artículo Bis, queda al final de los artículos."""
+    return con.execute(
+        "WITH orden AS (SELECT clave, MIN(id) AS o FROM versiones WHERE documento = ? GROUP BY clave) "
+        "SELECT v.unidad, v.jerarquia, v.texto, v.vigente_desde, v.decreto, v.fuente_url FROM versiones v "
+        "JOIN orden USING (clave) WHERE v.documento = ? AND v.vigente_desde <= ? "
+        "AND (v.vigente_hasta IS NULL OR v.vigente_hasta > ?) ORDER BY v.tipo = 'transitorio', orden.o",
+        (documento, documento, fecha, fecha)).fetchall()
+
+
 def indexar(con: sqlite3.Connection) -> None:
     """Llena las dos tablas de búsqueda. Va al final de la construcción, con todas las versiones."""
     con.execute("INSERT INTO versiones_fts(versiones_fts) VALUES ('rebuild')")

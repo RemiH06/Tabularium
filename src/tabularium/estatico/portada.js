@@ -1,13 +1,12 @@
 // Portada de Tabularium. La estatua gira despacio en diagonal y se imprime con trama de puntos:
 // la tinta es la sombra (en oscuro, la luz) y la luz rasante de atrás deja un filo dorado. Al
-// llegar al tope del giro entra la siguiente. Las monedas del corpus usan la misma trama sobre
-// una textura de normales (ver `portada/tinta.py`). Sin WebGL queda la imagen fija.
+// llegar al tope del giro entra la siguiente. Sin WebGL queda la imagen fija.
 "use strict";
 
 const quieto = matchMedia("(prefers-reduced-motion: reduce)");
 const oscuro = matchMedia("(prefers-color-scheme: dark)");
 
-// La trama y el sombreado, iguales para la estatua y las monedas.
+// La trama y el sombreado (los mismos de `portada/tinta.py`).
 const TRAMA = `
 uniform vec3 luz; uniform float celda, claro, aparecer; uniform vec3 papel, tinta, oro;
 vec3 imprimir(vec3 n, float ao, float filo) {
@@ -40,17 +39,6 @@ void main() {
   gl_FragColor = vec4(imprimir(n, vao, smoothstep(.18, .42, filo)), 1.);
 }`;
 
-const VERT_2D = `attribute vec2 p; varying vec2 uv;
-void main() { uv = p * .5 + .5; gl_Position = vec4(p, 0., 1.); }`;
-const FRAG_2D = `precision highp float;
-uniform sampler2D tex; varying vec2 uv;` + TRAMA + `
-void main() {
-  vec4 t = texture2D(tex, uv);
-  vec2 nxy = t.rg * 2. - 1.;
-  vec3 n = vec3(nxy, sqrt(clamp(1. - dot(nxy, nxy), 0., 1.)));
-  gl_FragColor = vec4(imprimir(n, t.b, 0.) * t.a, t.a);
-}`;
-
 function color(nombre) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(nombre).trim();
   return [1, 3, 5].map(i => parseInt(v.slice(i, i + 2), 16) / 255);
@@ -81,7 +69,7 @@ function respaldo(lienzo) {
   lienzo.append(img);
 }
 
-// Lo común a los dos lienzos: tamaño, colores, cuándo dibujar.
+// Tamaño, colores y cuándo dibujar.
 function lienzoGL(lienzo, opciones) {
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
@@ -265,46 +253,6 @@ async function montarEscena(lienzo) {
   e.pedir();
 }
 
-// Las monedas: una textura de normales con la misma trama; la luz es la que sigue al puntero.
-async function montarMoneda(lienzo) {
-  const e = lienzoGL(lienzo, { premultipliedAlpha: true, antialias: false });
-  if (!e) return respaldo(lienzo);
-  const { gl } = e;
-  let p, img;
-  try {
-    p = programa(gl, VERT_2D, FRAG_2D);
-    img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = lienzo.dataset.textura; });
-  } catch (err) {
-    e.canvas.remove();
-    return respaldo(lienzo);
-  }
-  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  const a = gl.getAttribLocation(p.prog, "p");
-  gl.enableVertexAttribArray(a);
-  gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
-  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);  // son datos, no color
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
-                        [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-  e.medir();
-  const luz = LUZ.slice();
-  e.dibujar = () => {
-    const meta = performance.now() < luzPuntero.hasta ? luzPuntero.meta : LUZ;
-    for (let k = 0; k < 3; k++) luz[k] += (meta[k] - luz[k]) * (quieto.matches ? 1 : .08);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.uniform1i(p.u.tex, 0);
-    e.comunes(p.u, luz, Number(lienzo.dataset.celda || 2.5), 1);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    if (e.seguir() && Math.abs(meta[0] - luz[0]) + Math.abs(meta[1] - luz[1]) > .002) e.pedir();
-  };
-  addEventListener("pointermove", () => e.pedir(), { passive: true });
-  e.pedir();
-}
-
 // Los cambios recientes entran renglón por renglón. Visibles por defecto: la clase `js` solo se pone aquí.
 function revelar() {
   const renglones = [...document.querySelectorAll(".revela")];
@@ -321,5 +269,4 @@ function revelar() {
 }
 
 for (const l of document.querySelectorAll(".lienzo[data-mallas]")) montarEscena(l).catch(() => respaldo(l));
-for (const l of document.querySelectorAll(".lienzo[data-textura]")) montarMoneda(l).catch(() => respaldo(l));
 revelar();

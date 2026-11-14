@@ -45,23 +45,23 @@ def test_estaticos(db):
 
 def test_portada(db):
     """La portada: la pieza con su respaldo, lo último en una oración por cambio y el script propio."""
-    from tabularium.pagina import ESTATICO, ESTATUAS, MONEDAS
+    from tabularium.pagina import ESTATICO, ESTATUAS
     r = TestClient(crear_app(db)).get("/")
     assert r.status_code == 200
-    assert 'data-mallas="/estatico/piezas/' in r.text and 'data-textura="/estatico/piezas/' in r.text and "<noscript><img" in r.text
+    assert 'data-mallas="/estatico/piezas/' in r.text and "<noscript><img" in r.text
+    assert 'href="/documento/LDP"' in r.text and "consulta.js?v=" in r.text and "moneda" not in r.text
     csp = r.headers["content-security-policy"]
     assert 'src="/estatico/portada.js?v=' in r.text and "script-src 'self'" in csp and "connect-src 'self'" in csp
     assert ' style="' not in r.text  # la CSP bloquea los estilos en línea
     assert "Publicaciones recientes en el DOF" in r.text and '<li class="revela">' in r.text and "no sustituye la asesoría" in r.text
     assert "Consultas a Gayo" in r.text and 'class="pausa' in r.text
     assert "Fuentes y método" in r.text and "Fuentes revisadas el " in r.text  # WCAG 2.2.2: lo que se mueve solo se puede pausar
-    for archivo, *_ in ESTATUAS + MONEDAS:  # toda pieza de la portada existe, con sus imágenes fijas de respaldo
+    for archivo, *_ in ESTATUAS:  # toda pieza de la portada existe, con sus imágenes fijas de respaldo
         for sufijo in ("-claro", "-oscuro"):
             assert (ESTATICO / "piezas" / f"{archivo}{sufijo}.webp").exists()
     for archivo, _ in ESTATUAS:
         assert (ESTATICO / "piezas" / f"{archivo}.malla").read_bytes()[:4] == b"TAB1"
-    for archivo, *_ in MONEDAS:
-        assert (ESTATICO / "piezas" / f"{archivo}.webp").exists()
+    assert (ESTATICO / "piezas" / "aureo-augusto.webp").exists()  # las monedas se guardan para otro uso
 
 
 def test_cambio_en_una_oracion(db):
@@ -181,6 +181,10 @@ def test_post_desde_otro_sitio(db):
     assert _preguntar(cliente, **{"sec-fetch-site": "cross-site"}).status_code == 403
     assert _preguntar(cliente, origin="https://malo.example").status_code == 403
     assert _preguntar(cliente, origin="http://testserver", **{"sec-fetch-site": "same-origin"}).status_code == 200
+    # Lo que manda un navegador real con Referrer-Policy no-referrer: rechazarlo dejó a Gayo sin consultas.
+    assert _preguntar(cliente, origin="null", **{"sec-fetch-site": "same-origin"}).status_code == 200
+    assert _preguntar(cliente, origin="null").status_code == 403  # sin Sec-Fetch-Site, null no prueba nada
+    assert _preguntar(cliente, origin="http://testserver", **{"sec-fetch-site": "same-site"}).status_code == 403
 
 
 def test_ipv6_cuenta_por_su_64(db):
@@ -279,3 +283,53 @@ def test_la_redaccion_hace_fila_y_suelta_la_busqueda(db):
     finally:
         pagina._modelo.release()
     assert t.listo.wait(10) and t.respuesta.citas
+
+
+
+# Materias, documentos y descarga por fecha (2026-11-14).
+def test_materias():
+    from tabularium.materias import materia
+    assert materia("LISR") == "ISR" and materia("CFF") == "CFF" and materia("LIVA") == "IVA"
+    assert materia("RMF2026", "3.13.2") == "ISR" and materia("RMF2025", "4.1.1") == "IVA"
+    assert materia("RMF2026", "2.7.1.48") == "CFF" and materia("RMF2026", "12.1.1") == "DIG"
+    assert materia("RMF2026-A8") == "ISR" and materia("GUIA-A20") == "CFDI" and materia("RMF2024-A29") == "CFDI"
+    assert materia("RMF2026") is None and materia("LDP") is None  # sin regla no se puede decir; ley fuera del mapa
+
+
+def test_filtro_por_materia(db):
+    from tabularium.pagina import _por_materia
+    lista = [{"pendiente": False, "documentos": [{"documento": "RMF2026", "cambios": [{"unidad": "3.1.1"}, {"unidad": "4.1.1"}]}]},
+             {"pendiente": True, "documentos": [{"documento": "LISR", "cambios": []}]}]
+    isr = _por_materia(lista, "ISR")
+    assert [c["unidad"] for c in isr[0]["documentos"][0]["cambios"]] == ["3.1.1"] and isr[1]["documentos"][0]["documento"] == "LISR"
+    assert len(_por_materia(lista, "IVA")) == 1 and _por_materia(lista, None) is lista
+    r = TestClient(crear_app(db)).get("/novellae", params={"materia": "ISR", "desde": "2024-01-01", "hasta": "2024-12-31"})
+    assert r.status_code == 200 and "<ins>nuevo.</ins>" not in r.text  # el cambio de la LDP no es del ISR
+
+
+def test_documento_y_versiones(db):
+    cliente = TestClient(crear_app(db))
+    r = cliente.get("/documento/LDP")
+    assert r.status_code == 200 and "Versiones" in r.text and "Fuente oficial" in r.text
+    assert "/documento/LDP/texto?fecha=2024-04-02" in r.text and "/documento/LDP/texto?fecha=2024-01-01" in r.text
+    assert cliente.get("/documento/NOEXISTE").status_code == 404
+
+
+def test_texto_vigente_por_fecha(db):
+    cliente = TestClient(crear_app(db))
+    antes = cliente.get("/documento/LDP/texto", params={"fecha": "2024-04-01"})
+    despues = cliente.get("/documento/LDP/texto", params={"fecha": "2024-04-02"})
+    assert antes.status_code == despues.status_code == 200
+    assert antes.headers["content-type"].startswith("text/plain") and 'filename="LDP_2024-04-01.txt"' in antes.headers["content-disposition"]
+    assert "viejo." in antes.text and "nuevo." not in antes.text and "nuevo." in despues.text
+    assert "No sustituye la publicación oficial" in antes.text
+    assert cliente.get("/documento/LDP/texto", params={"fecha": "2023-12-31"}).status_code == 400  # antes del corpus
+    assert cliente.get("/documento/LDP/texto", params={"fecha": "<script>"}).status_code == 400
+    assert cliente.get("/documento/NOEXISTE/texto", params={"fecha": "2024-05-01"}).status_code == 400
+
+
+def test_enter_envia_la_consulta(db):
+    cliente = TestClient(crear_app(db))
+    assert "consulta.js?v=" in cliente.get("/preguntar").text
+    js = cliente.get("/estatico/consulta.js")
+    assert js.status_code == 200 and "requestSubmit" in js.text and "isComposing" in js.text

@@ -13,7 +13,7 @@ Archivos `.woff2` sin modificar, subconjunto latino, bajados de Fontsource 5.3.0
 
 ## Piezas (CC0 1.0, dominio público)
 
-Escaneos 3D del Musée Saint-Raymond, Toulouse, publicados en Sketchfab bajo CC0 (licencia verificada en la API de Sketchfab y en el `license.txt` de cada descarga, 2026-11-13). Las mallas (`.malla`) y las imágenes de `piezas/` se derivan de ellos con `portada/render_estatuas.py` y `portada/tinta.py`. CC0 no pide crédito; se da de todos modos.
+Escaneos 3D del Musée Saint-Raymond, Toulouse, publicados en Sketchfab bajo CC0 (licencia verificada en la API de Sketchfab y en el `license.txt` de cada descarga, 2026-11-13). Las mallas (`.malla`) y las imágenes de `piezas/` se derivan de ellos con `portada/render_estatuas.py` y `portada/tinta.py`. CC0 no pide crédito; se da de todos modos. Las monedas no se usan en la página desde el 2026-11-14; se guardan para otro uso.
 
 | Archivo | Pieza | Modelo |
 |---|---|---|
