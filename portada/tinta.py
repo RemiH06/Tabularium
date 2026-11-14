@@ -1,14 +1,16 @@
 """Sombreado de la portada en numpy: la referencia del shader de `estatico/portada.js`.
 
-La pieza se imprime en una tinta con trama de puntos a 15°. En claro la tinta es la sombra y el
+La pieza se imprime en una tinta con trama de puntos a 15° (las monedas, en oro). En claro la tinta es la sombra y el
 papel es el fondo de la página; en oscuro la tinta es la luz. Sirve para la imagen fija de quien
 no tiene WebGL y para comprobar que el shader dice lo mismo. Si cambia uno, cambia el otro.
 """
 import numpy as np
 
+# Los mismos colores que `--fondo`, `--tinta` y `--oro` de `estilo.css`. "hondo" pinta los pliegues
+# (en claro) o los brillos (en oscuro); la estatua que gira usa en su lugar un filo de oro.
 MODOS = {
-    "claro": {"papel": "#EEEBE4", "tinta": "#A54027", "hondo": "#1E1A17"},
-    "oscuro": {"papel": "#171816", "tinta": "#D66C51", "hondo": "#ECE8DF"},
+    "claro": {"papel": "#FBFAF7", "tinta": "#1C1B18", "hondo": "#1C1B18"},
+    "oscuro": {"papel": "#121211", "tinta": "#ECE7DC", "hondo": "#D2AC56"},
 }
 LUZ = (-0.55, 0.55, 0.62)  # arriba a la izquierda, hacia quien mira: la del respaldo
 
@@ -22,7 +24,7 @@ def empacar(normal: np.ndarray, ao: np.ndarray, alfa: np.ndarray) -> np.ndarray:
     return np.dstack([normal[..., 0], normal[..., 1], ao, alfa]).astype(np.float32)
 
 
-def sombrear(textura: np.ndarray, modo: str, luz=LUZ, celda: float = 5.0) -> np.ndarray:
+def sombrear(textura: np.ndarray, modo: str, luz=LUZ, celda: float = 4.0, tinta: str | None = None) -> np.ndarray:
     """RGB de la pieza sobre el papel. `textura` como la deja `empacar`, fila 0 arriba."""
     nx, ny = textura[..., 0] * 2 - 1, textura[..., 1] * 2 - 1
     ao, alfa = textura[..., 2], textura[..., 3]
@@ -45,6 +47,8 @@ def sombrear(textura: np.ndarray, modo: str, luz=LUZ, celda: float = 5.0) -> np.
     else:      # brillos en hueso
         hondo = np.clip((lam - 0.9) / 0.06, 0, 1) * np.clip((ao - 0.8) / 0.1, 0, 1)
     m = {k: hexa(c) for k, c in MODOS[modo].items()}
+    if tinta:
+        m["tinta"] = hexa(tinta)
     c = m["papel"] + (m["tinta"] - m["papel"]) * punto[..., None]
     c = c + (m["hondo"] - c) * hondo[..., None]
     return m["papel"] + (c - m["papel"]) * alfa[..., None]

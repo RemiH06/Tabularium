@@ -36,7 +36,8 @@ def test_estaticos(db):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/css")
     assert "max-age" in r.headers["cache-control"]
     assert cliente.get("/estatico/portada.js").status_code == 200
-    tipos = {"piezas/augusto.webp": "image/webp", "fuentes/marcellus-400-normal.woff2": "font/woff2", "sello.svg": "image/svg+xml"}
+    tipos = {"piezas/aureo-augusto.webp": "image/webp", "fuentes/public-sans-400-normal.woff2": "font/woff2",
+             "sello.svg": "image/svg+xml", "piezas/augusto.malla": "application/octet-stream"}
     for ruta, tipo in tipos.items():  # con nosniff, un tipo equivocado no carga
         assert cliente.get(f"/estatico/{ruta}").headers["content-type"].startswith(tipo)
     assert cliente.get("/estatico/../pagina.py").status_code == 404
@@ -44,24 +45,32 @@ def test_estaticos(db):
 
 def test_portada(db):
     """La portada: la pieza con su respaldo, lo último en una oración por cambio y el script propio."""
-    from tabularium.pagina import ESTATICO, MONEDAS, PIEZAS
+    from tabularium.pagina import ESTATICO, ESTATUAS, MONEDAS
     r = TestClient(crear_app(db)).get("/")
     assert r.status_code == 200
-    assert 'data-textura="/estatico/piezas/' in r.text and "<noscript><img" in r.text
-    assert 'src="/estatico/portada.js"' in r.text and "script-src 'self'" in r.headers["content-security-policy"]
+    assert 'data-mallas="/estatico/piezas/' in r.text and 'data-textura="/estatico/piezas/' in r.text and "<noscript><img" in r.text
+    csp = r.headers["content-security-policy"]
+    assert 'src="/estatico/portada.js?v=' in r.text and "script-src 'self'" in csp and "connect-src 'self'" in csp
     assert ' style="' not in r.text  # la CSP bloquea los estilos en línea
-    assert "Lo último en el DOF" in r.text and 'class="novedad revela"' in r.text and "no sustituye a un abogado" in r.text
-    for archivo, *_ in PIEZAS + MONEDAS:  # toda pieza que la portada pueda elegir existe, con sus respaldos
-        for sufijo in ("", "-claro", "-oscuro"):
+    assert "Lo que cambió hace poco" in r.text and '<li class="revela">' in r.text and "no sustituye a un abogado" in r.text
+    assert "Pregúntale a Gayo" in r.text and 'class="pausa' in r.text  # WCAG 2.2.2: lo que se mueve solo se puede pausar
+    for archivo, *_ in ESTATUAS + MONEDAS:  # toda pieza de la portada existe, con sus imágenes fijas de respaldo
+        for sufijo in ("-claro", "-oscuro"):
             assert (ESTATICO / "piezas" / f"{archivo}{sufijo}.webp").exists()
+    for archivo, _ in ESTATUAS:
+        assert (ESTATICO / "piezas" / f"{archivo}.malla").read_bytes()[:4] == b"TAB1"
+    for archivo, *_ in MONEDAS:
+        assert (ESTATICO / "piezas" / f"{archivo}.webp").exists()
 
 
-def test_novedad_en_una_oracion(db):
-    """Cada cambio de una publicación sale en un renglón, con su etiqueta y el enlace a su Novella."""
-    from tabularium.pagina import _ancla, _novedad, _todas
+def test_cambio_en_una_oracion(db):
+    """Cada cambio sale en un renglón: dónde, una oración, su etiqueta y el enlace a su Novella."""
+    from tabularium.pagina import _ancla, _recientes, _renglon, _todas
     n = next(n for n in _todas(db)[0] if any(d["documento"] == "LDP" for d in n["documentos"]))
-    html = _novedad(n)
-    assert "LDP 2o." in html and f"#{_ancla(n)}" in html and f'datetime="{n["publicado_dof"]}"' in html
+    renglones = _recientes([n])
+    html = _renglon(renglones[0])
+    assert "LDP, art. 2o" in html and f"#{_ancla(n)}" in html and f'datetime="{n["publicado_dof"]}"' in html
+    assert len(_recientes(_todas(db)[0], 3)) <= 3
 
 
 def test_oracion():
@@ -183,7 +192,7 @@ def test_el_fallo_del_baker_no_se_muestra(db):
     def caido(tarea, archivo):
         raise BakerCaido("http://100.64.0.1:8090 rechazó la llave")
     r = _preguntar(TestClient(crear_app(db, caido)))
-    assert "el modelo no está disponible" in r.text and "100.64" not in r.text and "8090" not in r.text
+    assert "Gayo no está disponible" in r.text and "100.64" not in r.text and "8090" not in r.text
 
 
 def test_el_modelo_se_carga_una_vez_con_hilos(monkeypatch):

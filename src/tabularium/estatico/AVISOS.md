@@ -4,16 +4,16 @@ El código de Tabularium va con la licencia del repo. Esto no es código propio:
 
 ## Fuentes (SIL Open Font License 1.1)
 
-Archivos `.woff2` sin modificar, subconjunto latino, bajados de Fontsource 5.3.0. El texto de la licencia está en `fuentes/OFL-marcellus.txt` y `fuentes/OFL-literata.txt`.
+Archivos `.woff2` sin modificar, subconjunto latino, bajados de Fontsource 5.3.0. El texto de la licencia está en `fuentes/OFL-bodoni-moda.txt` y `fuentes/OFL-public-sans.txt`.
 
 | Archivo | Familia | Copyright |
 |---|---|---|
-| `fuentes/marcellus-400-normal.woff2` | Marcellus | Copyright (c) 2012 Brian J. Bonislawsky DBA Astigmatic (AOETI) |
-| `fuentes/literata-*.woff2` | Literata | Copyright 2017 The Literata Project Authors |
+| `fuentes/bodoni-moda-500-normal.woff2` | Bodoni Moda | Copyright 2020 The Bodoni Moda Project Authors |
+| `fuentes/public-sans-*.woff2` | Public Sans | Copyright 2015 The Public Sans Project Authors |
 
 ## Piezas (CC0 1.0, dominio público)
 
-Escaneos 3D del Musée Saint-Raymond, Toulouse, publicados en Sketchfab bajo CC0 (licencia verificada en la API de Sketchfab y en el `license.txt` de cada descarga, 2026-11-13). Las imágenes de `piezas/` se derivan de ellos con `portada/render_estatuas.py` y `portada/tinta.py`. CC0 no pide crédito; se da de todos modos.
+Escaneos 3D del Musée Saint-Raymond, Toulouse, publicados en Sketchfab bajo CC0 (licencia verificada en la API de Sketchfab y en el `license.txt` de cada descarga, 2026-11-13). Las mallas (`.malla`) y las imágenes de `piezas/` se derivan de ellos con `portada/render_estatuas.py` y `portada/tinta.py`. CC0 no pide crédito; se da de todos modos.
 
 | Archivo | Pieza | Modelo |
 |---|---|---|

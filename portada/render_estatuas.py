@@ -3,6 +3,7 @@
 Uso, con Blender 4.3 sin interfaz:
   blender -b -P render_estatuas.py -- previa  <carpeta_gltf> <salida>
   blender -b -P render_estatuas.py -- final   <carpeta_gltf> <salida> <vista> [lado_px]
+  blender -b -P render_estatuas.py -- malla   <carpeta_gltf> <estatico/piezas> <triangulos>
   blender -b -P render_estatuas.py -- empacar <salida_de_final> <estatico/piezas> <lado_px> <calidad> [pieza...]
 
 `previa` dibuja la pieza desde seis direcciones con Workbench para elegir la vista.
@@ -194,9 +195,89 @@ def empacar(final_dir: Path, salida: Path, lado: int, calidad: int, piezas: list
         textura[alfa < 0.01, :3] = (0.5, 0.5, 1.0)  # fuera de la pieza: plano y sin oclusión
         error = _webp(textura, salida / f"{pieza}.webp", calidad)
         print("textura", pieza, textura.shape[1], "x", textura.shape[0], "error máx.", round(error, 1))
+        oro = {"claro": "#A98228", "oscuro": "#D2AC56"}  # las monedas van en oro, como en la página
         for modo in tinta.MODOS:
-            rgb = tinta.sombrear(textura, modo)
+            rgb = tinta.sombrear(textura, modo, tinta=oro[modo] if lado <= 512 else None)
             _webp(np.dstack([rgb, np.ones(rgb.shape[:2], np.float32)]), salida / f"{pieza}-{modo}.webp", 82)
+
+
+def malla(carpeta: Path, salida: Path, caras: int):
+    """Malla para el giro en la portada: reducida a `caras` triángulos, centrada en el origen con
+    el lado mayor de 2, y con la oclusión horneada por vértice. Formato `.malla` (little endian):
+      'TAB1', uint32 vértices, uint32 índices,
+      por vértice 12 bytes: posición int16 x, y, z (normalizada a -1..1) y relleno int16;
+                            normal int8 x, y, z (normalizada) y oclusión uint8,
+      índices uint16 (triángulos).
+    Ejes de WebGL: y arriba y z hacia quien mira (el frente de la pieza)."""
+    import bmesh
+    mallas, centro, medida = cargar(carpeta)
+    for o in bpy.context.scene.objects:
+        o.select_set(o in mallas)
+    bpy.context.view_layer.objects.active = mallas[0]
+    if len(mallas) > 1:
+        bpy.ops.object.join()
+    obj = bpy.context.view_layer.objects.active
+    bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    # el escaneo trae vértices duplicados en las costuras de UV: se juntan antes de reducir
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=medida.length * 1e-5)
+    bm.to_mesh(obj.data)
+    bm.free()
+    total = len(obj.data.polygons)
+    mod = obj.modifiers.new("reducir", "DECIMATE")
+    mod.ratio = min(1.0, caras / max(1, sum(len(p.vertices) - 2 for p in obj.data.polygons)))
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    bpy.ops.object.shade_smooth()
+    print("caras", total, "->", len(obj.data.polygons))
+
+    # oclusión horneada a un atributo de color por vértice
+    esc = bpy.context.scene
+    esc.render.engine = "CYCLES"
+    esc.cycles.device = "GPU"
+    prefs = bpy.context.preferences.addons["cycles"].preferences
+    prefs.compute_device_type = "CUDA"
+    prefs.get_devices()
+    for d in prefs.devices:
+        d.use = d.type == "CUDA"
+    esc.cycles.samples = 128
+    color = obj.data.color_attributes.new("ao", "FLOAT_COLOR", "POINT")
+    obj.data.color_attributes.active_color = color
+    if not obj.data.materials:
+        obj.data.materials.append(bpy.data.materials.new("base"))
+    bpy.ops.object.bake(type="AO", target="VERTEX_COLORS")
+
+    me = obj.data
+    me.calc_loop_triangles()
+    n = len(me.vertices)
+    assert n < 65536, f"{n} vértices no caben en índices de 16 bits"
+    pos = np.empty(n * 3, np.float32)
+    me.vertices.foreach_get("co", pos)
+    nor = np.empty(n * 3, np.float32)
+    me.vertices.foreach_get("normal", nor)
+    ao = np.empty(n * 4, np.float32)
+    color.data.foreach_get("color", ao)
+    tri = np.empty(len(me.loop_triangles) * 3, np.int32)
+    me.loop_triangles.foreach_get("vertices", tri)
+    pos, nor = pos.reshape(n, 3), nor.reshape(n, 3)
+    c = np.array(centro, np.float32)
+    escala = 2 / max(medida)
+    p = (pos - c) * escala
+    # Blender: z arriba, el frente mira a -y. WebGL: y arriba, el frente mira a +z.
+    p = np.stack([p[:, 0], p[:, 2], -p[:, 1]], 1)
+    q = np.stack([nor[:, 0], nor[:, 2], -nor[:, 1]], 1)
+    vert = np.zeros(n, dtype=[("p", "<i2", 4), ("n", "i1", 3), ("ao", "u1")])
+    vert["p"][:, :3] = np.round(np.clip(p, -1, 1) * 32767)
+    vert["n"] = np.round(np.clip(q, -1, 1) * 127)
+    vert["ao"] = np.round(np.clip(ao.reshape(n, 4)[:, 0], 0, 1) * 255)
+    ruta = salida / f"{carpeta.name}.malla"
+    with open(ruta, "wb") as f:
+        f.write(b"TAB1")
+        f.write(np.array([n, len(tri)], "<u4").tobytes())
+        f.write(vert.tobytes())
+        f.write(tri.astype("<u2").tobytes())
+    print("malla", ruta.name, n, "vértices", len(tri) // 3, "triángulos", ruta.stat().st_size // 1024, "KB")
 
 
 if __name__ == "__main__":
@@ -206,6 +287,8 @@ if __name__ == "__main__":
     salida.mkdir(parents=True, exist_ok=True)
     if modo == "previa":
         previa(carpeta, salida)
+    elif modo == "malla":  # args[3]: triángulos
+        malla(carpeta, salida, int(args[3]))
     elif modo == "empacar":  # carpeta: la salida de `final`; lado, calidad WebP y, si se quiere, piezas
         empacar(carpeta, salida, int(args[3]), int(args[4]), args[5:])
     else:

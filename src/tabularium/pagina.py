@@ -6,7 +6,10 @@ pasa por `escape`: el corpus viene de fuentes externas.
 """
 from __future__ import annotations
 
+import functools
+import hashlib
 import ipaddress
+import json
 import mimetypes
 import os
 import re
@@ -38,37 +41,54 @@ from .servidor import ruta_db
 # fuentes también se sirven desde aquí: pedirlas a otro sitio le daría la IP de quien visita.
 CABECERAS = {
     "Content-Security-Policy": "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; "
-                               "font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+                               "font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     # Por HTTP local el navegador la ignora; por el túnel (HTTPS) obliga a no volver a HTTP.
     "Strict-Transport-Security": "max-age=31536000",
 }
-AVISO = ("Tabularium no sustituye a un abogado o contador que firme. El diff es el texto literal de cada versión; "
-         "las etiquetas ▲ ▼ ◆ y los resúmenes marcados como generados los escribe un modelo y pueden equivocarse.")
-OCUPADO = "el modelo está atendiendo otra pregunta; intenta en un minuto"
+AVISO = ("Tabularium no sustituye a un abogado ni a un contador que firme. El diff es el texto literal de cada "
+         "versión; las etiquetas ▲ ▼ ◆ y los resúmenes marcados como generados los escribe un modelo, y sí que "
+         "pueden equivocarse.")
+OCUPADO = "Gayo está atendiendo otra pregunta; intenta en un minuto"
 SIMBOLOS = {"▲": "amplía", "▼": "restringe", "◆": "aclara", "✚": "nueva", "✖": "derogada"}
 
-
-
 # Con nosniff, un tipo equivocado deja la imagen o la fuente sin cargar; no depender del sistema.
-for _tipo, _ext in (("image/webp", ".webp"), ("font/woff2", ".woff2"), ("image/svg+xml", ".svg"), ("text/javascript", ".js")):
+for _tipo, _ext in (("image/webp", ".webp"), ("font/woff2", ".woff2"), ("image/svg+xml", ".svg"),
+                    ("text/javascript", ".js"), ("application/octet-stream", ".malla")):
     mimetypes.add_type(_tipo, _ext)
 CLASES = {"▲": "amplia", "▼": "restringe", "◆": "aclara", "✚": "nueva", "✖": "derogada"}
 ESTATICO = Path(__file__).parent / "estatico"
-# Piezas CC0 del Musée Saint-Raymond (Toulouse), renderizadas con `portada/render_estatuas.py`.
-PIEZAS = [  # (archivo, ancho, alto de la textura, pie, texto alternativo)
-    ("augusto", 930, 1400, "Busto de Augusto con corona de encino",
-     "Busto de mármol de Augusto, con corona de hojas de encino, impreso en tinta roja con trama de puntos."),
-    ("septimio", 901, 1400, "Busto de Septimio Severo con corona de encino",
-     "Busto de mármol de Septimio Severo, con barba y toga, impreso en tinta roja con trama de puntos."),
-    ("hercules", 930, 1400, "Hércules mata a Gerión, relieve de la villa de Chiragan",
-     "Relieve de mármol de Hércules luchando contra Gerión, impreso en tinta roja con trama de puntos."),
+# Escaneos CC0 del Musée Saint-Raymond (Toulouse), reducidos con `portada/render_estatuas.py`.
+ESTATUAS = [  # (archivo, pie)
+    ("augusto", "Busto de Augusto con corona de encino"),
+    ("septimio", "Busto de Septimio Severo con corona de encino"),
+    ("hercules", "Hércules mata a Gerión, relieve de la villa de Chiragan"),
 ]
-MONEDAS = [("aureo-augusto", "Áureo de Augusto", "Moneda de oro con el perfil de Augusto, en tinta ocre."),
-           ("sestercio-trajano", "Sestercio de Trajano", "Moneda de bronce con el busto de Trajano, en tinta ocre.")]
-CREDITO = ("Las piezas son escaneos del Musée Saint-Raymond de Toulouse, publicados en dominio público (CC0) "
-           "e impresos aquí con un shader propio.")
+MONEDAS = [("aureo-augusto", "Áureo de Augusto", "Moneda de oro con el perfil de Augusto, impresa con trama de puntos."),
+           ("sestercio-trajano", "Sestercio de Trajano", "Moneda de bronce con el busto de Trajano, impresa con trama de puntos.")]
+CREDITO = ("Las estatuas y las monedas son escaneos del Musée Saint-Raymond de Toulouse, en dominio público (CC0), "
+           "impresos aquí con un shader propio.")
+# La T de la tablilla: el logo y el ícono de la pestaña.
+LOGO = ('<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="2" fill="none" '
+        'stroke="currentColor" stroke-width="1.4"/><path fill="currentColor" d="M8 8h16v5h-1.6c-.3-1.6-1-2.4-2.6-2.4h-1.6V22'
+        'c0 1 .6 1.4 2 1.5V25h-8.4v-1.5c1.4-.1 2-.5 2-1.5V10.6h-1.6c-1.6 0-2.3.8-2.6 2.4H8z"/></svg>')
+SECCIONES = (("/novellae", "Novellae"), ("/preguntar", "Gayo"), ("/#corpus", "Corpus"))
+
+
+@functools.cache
+def _version() -> str:
+    """Huella de los estáticos: va en cada URL para que un cambio no espere a que caduque la caché (un día)."""
+    h = hashlib.sha256()
+    for f in sorted(ESTATICO.rglob("*")):
+        if f.is_file():
+            h.update(f.relative_to(ESTATICO).as_posix().encode() + f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+def _e(ruta: str) -> str:
+    """URL de un estático con su versión."""
+    return f"/estatico/{ruta}?v={_version()}"
 
 
 def _efecto(simbolo: str | None, generado: bool = True) -> str:
@@ -122,21 +142,28 @@ def _novella(n: dict) -> str:
     return "".join(partes) + "</article>"
 
 
-def _pagina(titulo: str, cuerpo: str, actual: str = "", descripcion: str = "", script: bool = False) -> str:
-    actual_attr = ' aria-current="page"'
-    nav = "".join(f'<a href="{ruta}"{actual_attr if ruta == actual else ""}>{nombre}</a>'
-                  for ruta, nombre in (("/novellae", "Novellae"), ("/preguntar", "Preguntar"), ("/#corpus", "Corpus")))
+def _enlaces(actual: str) -> str:
+    marca = ' aria-current="page"'
+    return ('<nav class="enlaces" aria-label="Secciones">'
+            + "".join(f'<a href="{r}"{marca if r == actual else ""}>{n}</a>' for r, n in SECCIONES) + "</nav>")
+
+
+def _logo() -> str:
+    return f'<a class="logo" href="/" aria-label="Tabularium, inicio">{LOGO}</a>'
+
+
+def _pagina(titulo: str, cuerpo: str, actual: str = "", descripcion: str = "", portada: bool = False) -> str:
+    """La portada trae su propio encabezado (logo y enlaces dentro de la composición); las demás, la barra."""
     meta = f'<meta name="description" content="{escape(descripcion)}">' if descripcion else ""
-    js = '<script type="module" src="/estatico/portada.js"></script>' if script else ""
+    js = f'<script type="module" src="{_e("portada.js")}"></script>' if portada else ""
+    contenido = (f'<main id="contenido">{cuerpo}</main>' if portada else
+                 f'<header class="barra">{_logo()}{_enlaces(actual)}</header><main id="contenido" class="interna">{cuerpo}</main>')
     return (f'<!doctype html><html lang="es-MX"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">{meta}'
             f'<meta name="color-scheme" content="light dark">'
-            f'<title>{escape(titulo)}</title><link rel="stylesheet" href="/estatico/estilo.css">'
-            f'<link rel="icon" href="/estatico/sello.svg" type="image/svg+xml">{js}</head><body>'
-            f'<a class="salto" href="#contenido">Saltar al contenido</a>'
-            f'<header class="barra"><a class="sello" href="/" aria-label="Tabularium, inicio">TABVLARIVM<span>·</span></a>'
-            f'<nav aria-label="Secciones">{nav}</nav></header>'
-            f'<main id="contenido">{cuerpo}</main>'
+            f'<title>{escape(titulo)}</title><link rel="stylesheet" href="{_e("estilo.css")}">'
+            f'<link rel="icon" href="{_e("sello.svg")}" type="image/svg+xml">{js}</head><body>'
+            f'<a class="salto" href="#contenido">Saltar al contenido</a>{contenido}'
             f'<footer><p>{escape(AVISO)}</p><p>{escape(CREDITO)}</p></footer></body></html>')
 
 
@@ -195,73 +222,88 @@ def _oracion(texto: str) -> str:
     return m.group(1) if m else texto.rstrip(";,") + "."
 
 
-def _novedad(n: dict) -> str:
-    """Una publicación en un renglón: sus cambios, cada uno en una oración (hasta tres)."""
-    enlace = f'/novellae?desde={n["publicado_dof"]}&amp;hasta={n["publicado_dof"]}#{_ancla(n)}'
-    cambios = [(d, c) for d in n["documentos"] for c in d.get("cambios", [])]
+def _recientes(lista: list[dict], cuantos: int = 4) -> list[dict]:
+    """Los últimos cambios, uno por renglón: primero lo que el DOF ya publicó y el corpus aún no tiene."""
     renglones = []
-    if n["pendiente"]:
-        docs = ", ".join(d["documento"] for d in n["documentos"])
-        renglones.append(f'<li>{_efecto(None)}<span>Ya salió en el DOF; el texto entra al corpus ({escape(docs)}) '
-                         f'cuando la fuente oficial lo publique.</span></li>')
-    for d, c in cambios[:3]:
-        if c["resumen"]:
-            frase = escape(_oracion(c["resumen"]))
-        else:
-            frase = "Cambió el texto; la glosa todavía no está." if c["diff"] is not None else "Unidad nueva."
-        renglones.append(f'<li>{_efecto(c["efecto"], c["efecto_generado"])}<span><b>{escape(d["documento"])} '
-                         f'{escape(c["unidad"])}.</b> {frase}</span></li>')
-    for d in [d for d in n["documentos"] if d.get("nuevo")][:1]:
-        renglones.append(f'<li>{_efecto("✚", False)}<span><b>{escape(d["documento"])}.</b> Documento nuevo con '
-                         f'{d["unidades"]} unidades.</span></li>')
-    if not renglones:
-        renglones.append(f'<li>{_efecto(None)}<span>Solo transitorios.</span></li>')
-    resto = len(cambios) - 3
-    mas = f'<p class="mas"><a href="{enlace}">y {resto} cambio{"s" if resto > 1 else ""} más</a></p>' if resto > 0 else ""
-    titulo = escape(n["titulo"] or n["decreto_dof"] or "Publicación del DOF")
-    return (f'<li class="novedad revela"><time datetime="{n["publicado_dof"]}">{_fecha_corta(n["publicado_dof"])}</time>'
-            f'<div><h3><a href="{enlace}">{titulo}</a></h3><ul>{"".join(renglones)}</ul>{mas}</div></li>')
+    for n in sorted(lista, key=lambda n: n["publicado_dof"], reverse=True):
+        enlace = f'/novellae?desde={n["publicado_dof"]}&hasta={n["publicado_dof"]}#{_ancla(n)}'
+        base = {"fecha": n["publicado_dof"], "enlace": enlace}
+        if n["pendiente"]:
+            docs = ", ".join(d["documento"] for d in n["documentos"])
+            renglones.append({**base, "efecto": None, "generado": False, "donde": f"{docs}: ya salió en el DOF",
+                              "frase": n["titulo"] or "Publicación del DOF"})
+        for d in [] if n["pendiente"] else n["documentos"]:
+            if d.get("nuevo"):
+                renglones.append({**base, "efecto": "✚", "generado": False, "donde": d["documento"],
+                                  "frase": f'Documento nuevo con {d["unidades"]} unidades.'})
+            for c in d.get("cambios", []):
+                frase = (_oracion(c["resumen"]) if c["resumen"] else
+                         "Cambió el texto; la glosa todavía no está." if c["diff"] is not None else "Unidad nueva.")
+                renglones.append({**base, "efecto": c["efecto"], "generado": c["efecto_generado"],
+                                  "donde": ", ".join(c["cita"]["texto"].split(", ")[:2]), "frase": frase})
+        if len(renglones) >= cuantos:
+            break
+    return renglones[:cuantos]
 
 
-def _lienzo(archivo: str, ancho: int, alto: int, alt: str, tinta: str = "--rubrica", celda: float = 4.5) -> str:
-    """La pieza: el script la imprime con WebGL; sin script, la imagen fija del modo claro."""
-    ruta = f"/estatico/piezas/{archivo}"
-    # Sin style en línea (la CSP lo bloquea): el script pone la proporción exacta desde la textura.
-    return (f'<div class="lienzo" data-textura="{ruta}.webp" '
-            f'data-fija-claro="{ruta}-claro.webp" data-fija-oscuro="{ruta}-oscuro.webp" data-tinta="{tinta}" '
-            f'data-celda="{celda}" data-alt="{escape(alt)}" role="img" aria-label="{escape(alt)}">'
-            f'<noscript><img src="{ruta}-claro.webp" alt="" width="{ancho}" height="{alto}"></noscript></div>')
+def _renglon(r: dict) -> str:
+    return (f'<li class="revela">{_efecto(r["efecto"], r["generado"])}<a class="que" href="{escape(r["enlace"])}">'
+            f'<span class="donde">{escape(r["donde"])}</span><span class="frase">{escape(r["frase"])}</span></a>'
+            f'<time datetime="{r["fecha"]}">{_fecha_corta(r["fecha"])}</time></li>')
+
+
+def _moneda(archivo: str, pie: str, alt: str) -> str:
+    r = f"piezas/{archivo}"
+    return (f'<figure class="moneda"><div class="lienzo" data-textura="{_e(r + ".webp")}" data-fija-claro="{_e(r + "-claro.webp")}" '
+            f'data-fija-oscuro="{_e(r + "-oscuro.webp")}" data-tinta="--oro" data-celda="2.5" role="img" aria-label="{escape(alt)}">'
+            f'<noscript><img src="{_e(r + "-claro.webp")}" alt="" width="512" height="512"></noscript></div>'
+            f'<figcaption>{escape(pie)}</figcaption></figure>')
+
+
+def _escena() -> str:
+    """La estatua que gira: el script carga las mallas en orden; sin script, la imagen fija de la primera."""
+    hoy = date.today().toordinal() % len(ESTATUAS)
+    orden = ESTATUAS[hoy:] + ESTATUAS[:hoy]
+    mallas = " ".join(_e(f"piezas/{a}.malla") for a, _ in orden)
+    pies = escape(json.dumps([p for _, p in orden], ensure_ascii=False))
+    primera = f"piezas/{orden[0][0]}"
+    alt = "Estatua romana de mármol, impresa con trama de puntos, que gira despacio y cambia cada diez segundos."
+    return (f'<figure class="escena"><div class="lienzo" data-mallas="{mallas}" data-pies="{pies}" '
+            f'data-fija-claro="{_e(primera + "-claro.webp")}" data-fija-oscuro="{_e(primera + "-oscuro.webp")}" data-celda="3.6" '
+            f'role="img" aria-label="{alt}"><noscript><img src="{_e(primera + "-claro.webp")}" alt=""></noscript></div>'
+            f'<figcaption><span>{escape(orden[0][1])}</span>'
+            f'<button class="pausa discreto" type="button" aria-pressed="false" hidden>Pausar el giro</button></figcaption></figure>')
 
 
 def portada(request: Request) -> HTMLResponse:
     lista, documentos = _todas(request.app.state.db)
     n_docs, n_unidades, n_versiones, ultima = _cache["cifras"]
-    archivo, ancho, alto, pie, alt = PIEZAS[date.today().toordinal() % len(PIEZAS)]
-    recientes = sorted(lista, key=lambda n: n["publicado_dof"], reverse=True)[:6]
-    novedades = "".join(_novedad(n) for n in recientes) or "<li>Todavía no hay publicaciones.</li>"
-    monedas = "".join(f'<figure class="moneda">{_lienzo(a, 512, 512, alt_m, "--ocre", 2.5)}<figcaption>{p}</figcaption></figure>'
-                      for a, p, alt_m in MONEDAS)
+    renglones = "".join(_renglon(r) for r in _recientes(lista)) or "<li>Todavía no hay publicaciones.</li>"
     docs = "".join(f"<li><b>{escape(i)}</b><span>{escape(n)}</span></li>" for i, n in documentos)
     cuerpo = (
-        f'<section class="portada"><div class="lema">'
-        f'<h1 class="marca" aria-label="Tabularium">TABVLARIVM<span class="punto" aria-hidden="true">·</span></h1>'
-        f'<p class="bajada">Las leyes fiscales de México con cada versión guardada desde 2024, y cada reforma '
-        f'del DOF anunciada <em>artículo por artículo</em>.</p>'
-        f'{_formulario(compacto=True)}</div>'
-        f'<figure class="pieza">{_lienzo(archivo, ancho, alto, alt)}<figcaption>{escape(pie)}</figcaption></figure></section>'
-        f'<section aria-labelledby="ultimo"><h2 id="ultimo">Lo último en el DOF</h2>'
-        f'<ol class="novedades">{novedades}</ol>'
-        f'<p><a href="/novellae">Todas las Novellae, con el texto literal de cada cambio</a></p></section>'
-        f'<section id="corpus" aria-labelledby="titulo-corpus" class="erario"><div>'
-        f'<h2 id="titulo-corpus">El corpus</h2><dl class="cifras">'
+        f'<section class="portada">{_logo()}{_enlaces("/")}'
+        f'<div class="encabezado"><h1 class="titulo">Tabularium</h1><hr class="filete">'
+        f'<p class="bajada">Las leyes fiscales de México, versión por versión desde 2024 (porque lo que te toca pagar '
+        f'depende del año, no de cómo amaneció la ley hoy).</p></div>'
+        f'<div class="recientes"><h2>Lo que cambió hace poco</h2><ol class="cambios">{renglones}</ol>'
+        f'<a class="todas" href="/novellae">Todas las Novellae, con el texto que se quitó y el que entró</a></div>'
+        f'{_escena()}</section>'
+        f'<section class="seccion gayo" aria-labelledby="titulo-gayo"><div><h2 id="titulo-gayo">Pregúntale a Gayo</h2>'
+        f'<p>Gayo escribió el libro con que se enseñaba derecho en Roma. El de aquí es más modesto: contesta solo con lo '
+        f'que puede citar (artículo, ley y la versión vigente en la fecha que elijas), y si no lo encuentra en el corpus, '
+        f'prefiere callarse antes que inventar.</p></div>{_formulario()}</section>'
+        f'<section id="corpus" class="seccion erario" aria-labelledby="titulo-corpus"><div>'
+        f'<h2 id="titulo-corpus">Qué hay en el archivo</h2><dl class="cifras">'
         f'<div><dt>documentos</dt><dd>{n_docs}</dd></div><div><dt>artículos, reglas y secciones</dt><dd>{n_unidades:,}</dd></div>'
         f'<div><dt>versiones guardadas</dt><dd>{n_versiones:,}</dd></div></dl>'
-        f'<p class="suave">Última publicación incorporada: {_fecha_corta(ultima) if ultima else "ninguna"}. '
-        f'Nada se sobrescribe: cada versión queda con su vigencia y el decreto que la reformó.</p>'
-        f'<ul class="documentos">{docs}</ul></div><div class="monedas">{monedas}</div></section>')
-    return _respuesta(_pagina("Tabularium", cuerpo, "/", script=True, descripcion=(
-        "Leyes fiscales de México versionadas (LISR, CFF, LIVA, RMF y anexos), con las reformas del DOF "
-        "anunciadas artículo por artículo y respuestas que citan su fuente.")))
+        f'<p class="suave">Nada se sobrescribe: cada versión se queda con su vigencia y con el decreto que la cambió, así '
+        f'que se puede preguntar por 2024 sin que conteste la ley de hoy. Última publicación incorporada: '
+        f'{_fecha_corta(ultima) if ultima else "ninguna"}.</p>'
+        f'<ul class="documentos">{docs}</ul></div>'
+        f'<div class="monedas">{"".join(_moneda(*m) for m in MONEDAS)}</div></section>')
+    return _respuesta(_pagina("Tabularium", cuerpo, "/", portada=True, descripcion=(
+        "Las leyes fiscales de México versión por versión desde 2024, con cada reforma del DOF anunciada artículo por "
+        "artículo y un asistente, Gayo, que solo responde con lo que puede citar.")))
 
 
 def novellae_pagina(request: Request) -> HTMLResponse:
@@ -271,7 +313,7 @@ def novellae_pagina(request: Request) -> HTMLResponse:
         fin = date.fromisoformat(hasta) if hasta else date.today()
         inicio = date.fromisoformat(desde) if desde else fin - timedelta(90)
     except (ValueError, OverflowError):  # OverflowError: "0001-01-01" menos 90 días
-        return _respuesta(_pagina("Tabularium", "<h1>Novellae</h1><p>Fecha inválida: usa AAAA-MM-DD.</p>", "/novellae"), 400)
+        return _respuesta(_pagina("Tabularium", "<h1>Novellae</h1><p>Esa fecha no es válida: usa AAAA-MM-DD.</p>", "/novellae"), 400)
     lista, documentos = _todas(request.app.state.db)
     elegido = documento_de(documento, fin.isoformat()) if documento else None
     lista = _filtrar(lista, inicio.isoformat(), fin.isoformat(), elegido)
@@ -284,8 +326,8 @@ def novellae_pagina(request: Request) -> HTMLResponse:
               f'<button type="submit">Filtrar</button></form>')
     rango = "" if desde or hasta else '<p class="suave">Últimos 90 días.</p>'
     cuerpo = "".join(_novella(n) for n in lista) or "<p>No hay publicaciones en ese rango.</p>"
-    intro = ('<h1 class="marca chica-marca">Novellae</h1><p class="bajada">Cada publicación del DOF que toca el corpus, con el '
-             'texto literal que se quitó y el que entró. Las etiquetas y los resúmenes los escribe un modelo y van marcados.</p>')
+    intro = ('<h1>Novellae</h1><p class="bajada">Cada publicación del DOF que toca el corpus, con el texto literal que '
+             'se quitó y el que entró. Las etiquetas y los resúmenes los escribe un modelo (van marcados, por si acaso).</p>')
     return _respuesta(_pagina("Tabularium: Novellae", intro + filtro + rango + cuerpo, "/novellae",
                               descripcion="Las reformas fiscales del DOF, artículo por artículo, con el diff literal."))
 
@@ -353,18 +395,16 @@ def _mismo_sitio(request: Request) -> bool:
     return not origen or urlsplit(origen).netloc == request.headers.get("host")
 
 
-ALCANCE = ("Responde solo con LISR, CFF, LIVA, la RMF y sus anexos, y cita cada pasaje. Si no lo puede citar, "
-           "no responde. La pregunta no se guarda.")
+ALCANCE = ("Gayo responde solo con LISR, CFF, LIVA, la RMF y sus anexos, y cita cada pasaje. Si no lo puede citar, "
+           "no responde. Tu pregunta no se guarda.")
 
 
-def _formulario(pregunta: str = "", fecha: str = "", compacto: bool = False) -> str:
-    filas = 2 if compacto else 4
-    return (f'<form class="preguntar" method="post" action="/preguntar"><label>Pregunta a la ley<textarea name="pregunta" '
-            f'rows="{filas}" maxlength="{pg.LARGO_MAXIMO}" required placeholder="¿Qué porcentaje de una computadora se puede deducir?">'
+def _formulario(pregunta: str = "", fecha: str = "") -> str:
+    return (f'<form class="preguntar" method="post" action="/preguntar"><label>Tu pregunta<textarea name="pregunta" '
+            f'rows="4" maxlength="{pg.LARGO_MAXIMO}" required placeholder="¿Qué porcentaje de una computadora se puede deducir?">'
             f'{escape(pregunta)}</textarea></label><div class="fila">'
             f'<label>Fecha del ejercicio<input type="date" name="fecha" min="2024-01-01" value="{escape(fecha)}"></label>'
-            f'<button type="submit">Preguntar</button></div>'
-            f'<p class="suave chica">{"Cita cada pasaje o no responde. Tu pregunta no se guarda." if compacto else ALCANCE}</p></form>')
+            f'<button type="submit">Preguntar</button></div><p class="suave chica">{ALCANCE}</p></form>')
 
 
 def _cita(c: dict) -> str:
@@ -376,24 +416,24 @@ def _resultado(r: pg.Respuesta) -> str:
         citas = "".join(f'<li><blockquote>{escape(c.texto)}</blockquote><p class="cita">{_cita(c.cita)}</p></li>'
                         for c in r.citas)
         return (f'<section class="respuesta"><p>{escape(r.texto)} <span class="generado">generado</span></p>'
-                f'<p class="suave">Redactado por un modelo local. Cada cita se verificó letra por letra contra el texto '
-                f'vigente en la fecha.</p><ol>{citas}</ol></section>')
+                f'<p class="suave">Lo redactó Gayo, un modelo que corre en casa. Cada cita se verificó letra por letra '
+                f'contra el texto vigente en la fecha.</p><ol>{citas}</ol></section>')
     if r.fallo:
         # El detalle (stderr del Baker, rutas) va a journald, no a quien visita.
-        motivo = OCUPADO if r.fallo == OCUPADO else "el modelo no está disponible"
+        motivo = OCUPADO if r.fallo == OCUPADO else "Gayo no está disponible ahorita"
         lista = "".join(f'<li class="cita">{_cita(p["cita"])}</li>' for p in r.pasajes)
         return (f'<section class="respuesta"><p>No hay respuesta redactada ahora: {motivo}.</p>'
                 f'<p>Estos son los artículos y reglas que encontró la búsqueda:</p><ol>{lista}</ol></section>')
-    return ('<section class="respuesta"><p>El corpus no responde esto con citas verificables, así que Tabularium '
-            'no responde.</p></section>')
+    return ('<section class="respuesta"><p>El corpus no responde esto con citas que se puedan verificar, así que '
+            'Gayo no contesta (callar es mejor que inventarse un artículo).</p></section>')
 
 
-CABEZA_PREGUNTAR = ('<h1 class="marca chica-marca">Preguntar</h1><p class="bajada">Una pregunta general sobre la ley '
-                    'fiscal federal. La respuesta cita cada pasaje en la versión vigente en la fecha que elijas.</p>')
+CABEZA_PREGUNTAR = ('<h1>Pregúntale a Gayo</h1><p class="bajada">Una pregunta general sobre la ley fiscal federal. '
+                    'Gayo cita cada pasaje en la versión vigente en la fecha que elijas, y si no puede citarlo, no contesta.</p>')
 
 
 def _preguntar(cuerpo: str, estado: int = 200) -> HTMLResponse:
-    return _respuesta(_pagina("Tabularium: Preguntar", CABEZA_PREGUNTAR + cuerpo, "/preguntar"), estado)
+    return _respuesta(_pagina("Tabularium: Gayo", CABEZA_PREGUNTAR + cuerpo, "/preguntar"), estado)
 
 
 def preguntar_get(request: Request) -> HTMLResponse:
